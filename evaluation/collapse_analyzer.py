@@ -21,7 +21,8 @@ class CollapseAnalyzer:
         analysis = {
             "summary": self._compute_summary(metrics_data),
             "token_analysis": self._analyze_token_metrics(metrics_data),
-            "overall_analysis": self._analyze_overall_metrics(metrics_data)
+            "overall_analysis": self._analyze_overall_metrics(metrics_data),
+            "chunk_analysis": self._analyze_chunk_metrics(metrics_data)
         }
         
         return analysis
@@ -88,6 +89,45 @@ class CollapseAnalyzer:
         }
         
         return overall_analysis
+    
+    def _analyze_chunk_metrics(self, metrics_data):
+        """Chunk-wise 메트릭 분석"""
+        chunk_metrics = metrics_data.get("chunk_metrics", {})
+        
+        if not chunk_metrics:
+            return {}
+        
+        chunk_entropies = chunk_metrics.get("chunk_svd_entropies", [])
+        num_chunks = chunk_metrics.get("num_chunks", 0)
+        avg_svd_entropy = chunk_metrics.get("avg_svd_entropy", 0)
+        std_svd_entropy = chunk_metrics.get("std_svd_entropy", 0)
+        
+        # Collapse 패턴 분석
+        collapse_pattern = "unknown"
+        if len(chunk_entropies) >= 2:
+            # 첫 번째와 마지막 청크의 엔트로피 비교
+            first_entropy = chunk_entropies[0]
+            last_entropy = chunk_entropies[-1]
+            entropy_decline = first_entropy - last_entropy
+            
+            if entropy_decline > 0.5:
+                collapse_pattern = "strong_decline"
+            elif entropy_decline > 0.1:
+                collapse_pattern = "moderate_decline"
+            elif entropy_decline > 0.01:
+                collapse_pattern = "weak_decline"
+            else:
+                collapse_pattern = "no_decline"
+        
+        chunk_analysis = {
+            "num_chunks": num_chunks,
+            "avg_svd_entropy": avg_svd_entropy,
+            "std_svd_entropy": std_svd_entropy,
+            "chunk_entropies": chunk_entropies,
+            "collapse_pattern": collapse_pattern
+        }
+        
+        return chunk_analysis
     
     def save_analysis(self, analysis, output_file):
         """분석 결과 저장"""

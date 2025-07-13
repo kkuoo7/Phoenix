@@ -117,7 +117,7 @@ class CollapseCollector:
             return None
     
     def _compute_collapse_metrics(self, features, token_ids):
-        """collapse 메트릭 계산 (GNC2, UNC3, SVD 엔트로피)"""
+        """collapse 메트릭 계산 (GNC2, UNC3, SVD 엔트로피, Chunk-wise)"""
         try:
             # 리스트 타입이면 텐서로 변환
             if isinstance(features, list):
@@ -130,13 +130,15 @@ class CollapseCollector:
                     logger.warning("No token_ids for collapse metrics (empty list)")
                     return None
                 token_ids = torch.tensor(token_ids)
+            
             # 토큰별 특성 그룹화
             token_features = self._group_features_by_token(features, token_ids)
             
             results = {
                 "total_tokens": len(token_features),
                 "token_metrics": {},
-                "overall_metrics": {}
+                "overall_metrics": {},
+                "chunk_metrics": {}
             }
             
             # 개별 토큰 메트릭 계산
@@ -173,11 +175,69 @@ class CollapseCollector:
                     'gnc2': self._compute_gnc2_class_means(token_features),
                     'unc3': self._compute_unc3_duality(token_features)
                 }
+                
+                # Chunk-wise 메트릭 계산
+                chunk_metrics = self._compute_chunk_metrics(all_features)
+                results["chunk_metrics"] = chunk_metrics
             
             return results
         except Exception as e:
             logger.error(f"Failed to compute collapse metrics: {e}")
             return None
+    
+    def _compute_chunk_metrics(self, features):
+        """Chunk-wise collapse 메트릭 계산"""
+        try:
+            chunk_size = 128  # 기본 청크 크기
+            num_chunks = max(1, features.shape[0] // chunk_size)
+            
+            if num_chunks < 2:
+                # 청크가 2개 미만이면 전체를 하나의 청크로 처리
+                chunk_entropy = self._compute_svd_entropy(features)
+                return {
+                    "chunk_svd_entropies": [chunk_entropy],
+                    "num_chunks": 1,
+                    "avg_svd_entropy": chunk_entropy,
+                    "std_svd_entropy": 0.0
+                }
+            
+            # 청크별 SVD 엔트로피 계산
+            chunk_entropies = []
+            for i in range(num_chunks):
+                start_idx = i * chunk_size
+                end_idx = min((i + 1) * chunk_size, features.shape[0])
+                chunk_features = features[start_idx:end_idx]
+                
+                if chunk_features.shape[0] >= chunk_size // 2:  # 최소 절반 크기
+                    chunk_entropy = self._compute_svd_entropy(chunk_features)
+                    chunk_entropies.append(chunk_entropy)
+            
+            if not chunk_entropies:
+                # 유효한 청크가 없으면 전체를 사용
+                chunk_entropy = self._compute_svd_entropy(features)
+                return {
+                    "chunk_svd_entropies": [chunk_entropy],
+                    "num_chunks": 1,
+                    "avg_svd_entropy": chunk_entropy,
+                    "std_svd_entropy": 0.0
+                }
+            
+            chunk_entropies = torch.tensor(chunk_entropies)
+            return {
+                "chunk_svd_entropies": chunk_entropies.tolist(),
+                "num_chunks": len(chunk_entropies),
+                "avg_svd_entropy": chunk_entropies.mean().item(),
+                "std_svd_entropy": chunk_entropies.std().item()
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to compute chunk metrics: {e}")
+            return {
+                "chunk_svd_entropies": [],
+                "num_chunks": 0,
+                "avg_svd_entropy": 0.0,
+                "std_svd_entropy": 0.0
+            }
     
     def _group_features_by_token(self, features, token_ids):
         """토큰별 특성 그룹화 (스페셜 토큰 제외)"""
