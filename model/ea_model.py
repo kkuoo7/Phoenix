@@ -7,7 +7,9 @@ import torch.nn as nn
 from huggingface_hub import hf_hub_download
 from transformers import AutoTokenizer
 import os
-from transformers import PreTrainedModel, PretrainedConfig,AutoConfig
+from transformers.modeling_utils import PreTrainedModel
+from transformers.configuration_utils import PretrainedConfig
+from transformers import AutoConfig
 
 
 from .modeling_llama_kv import LlamaForCausalLM as KVLlamaForCausalLM
@@ -55,14 +57,14 @@ class EaModel(nn.Module):
 
         device = base_model.model.layers[-1].self_attn.q_proj.weight.device
         if device!=base_model.lm_head.weight.device:
-            self.ea_layer.diff_device = True
+            setattr(self.ea_layer, '_diff_device', True)
             if not low_memory:
                 self.ea_layer.headweight = base_model.lm_head.weight.clone().to(device)
             else:
                 self.ea_layer.layer_device = device
 
         else:
-            self.ea_layer.diff_device = False
+            setattr(self.ea_layer, '_diff_device', False)
         self.ea_layer.load_state_dict(ea_layer_state_dict, strict=True)
         self.ea_layer.to(self.base_model.dtype).to(device)
         self.ea_layer.init_tree()
@@ -88,6 +90,8 @@ class EaModel(nn.Module):
             **kwargs,
     ):
         #assert Type=="LLaMA" or "Mixtral"
+        if base_model_path is None:
+            raise ValueError("base_model_path cannot be None")
         Type=AutoConfig.from_pretrained(base_model_path).architectures[0]
         if Type=='LlamaForCausalLM':
             base_model = KVLlamaForCausalLM.from_pretrained(
@@ -102,6 +106,8 @@ class EaModel(nn.Module):
                 base_model_path, **kwargs
             )
 
+        if ea_model_path is None:
+            raise ValueError("ea_model_path cannot be None")
         configpath=os.path.join(ea_model_path,"config.json")
         if not os.path.exists(configpath):
             configpath = hf_hub_download(ea_model_path, "config.json")
@@ -202,7 +208,7 @@ class EaModel(nn.Module):
         max_length=max_length-self.ea_layer.total_tokens-10
 
         if temperature > 1e-5:
-            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=int(top_k))
         else:
             logits_processor = None
         #assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
@@ -318,7 +324,7 @@ class EaModel(nn.Module):
         max_length = max_length - self.ea_layer.total_tokens - 10
 
         if temperature > 1e-5:
-            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=int(top_k))
         else:
             logits_processor = None
         # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
@@ -355,7 +361,7 @@ class EaModel(nn.Module):
         for idx in range(max_length):
             if logits_processor is not None:
                 logits = outputs.logits[:, -1]
-                logits = logits_processor(None, logits)
+                logits = logits_processor(input_ids, logits)
                 probabilities = torch.nn.functional.softmax(logits, dim=-1)
                 input_id = torch.multinomial(probabilities, 1)
             else:
@@ -397,7 +403,7 @@ class EaModel(nn.Module):
         max_length=max_length-self.ea_layer.total_tokens-10
 
         if temperature > 1e-5:
-            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=int(top_k))
         else:
             logits_processor = None
         #assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
@@ -503,7 +509,7 @@ class EaModel(nn.Module):
         max_length = max_length - self.ea_layer.total_tokens - 10
 
         if temperature > 1e-5:
-            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=int(top_k))
         else:
             logits_processor = None
         # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
@@ -539,7 +545,7 @@ class EaModel(nn.Module):
         for idx in range(max_length):
             if logits_processor is not None:
                 logits = outputs.logits[:, -1]
-                logits = logits_processor(None, logits)
+                logits = logits_processor(input_ids.to(torch.long), logits)
                 probabilities = torch.nn.functional.softmax(logits, dim=-1)
                 input_id = torch.multinomial(probabilities, 1)
             else:

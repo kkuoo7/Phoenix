@@ -915,6 +915,12 @@ class LlamaModel(LlamaPreTrainedModel):
         if hasattr(self, "tree_mask") and self.tree_mask is not None:
             tree_mask = self.tree_mask
             tree_len = tree_mask.size(-1)
+            # tree_len이 실제 attention_mask 크기를 초과하지 않도록 제한
+            actual_seq_len = combined_attention_mask.size(-1)
+            if tree_len > actual_seq_len:
+                # tree_mask를 실제 크기에 맞게 조정
+                tree_mask = tree_mask[:, :, :actual_seq_len, :actual_seq_len]
+                tree_len = actual_seq_len
             combined_attention_mask[:, :, -tree_len:, -tree_len:][
                 tree_mask == 0
                 ] = combined_attention_mask.min()

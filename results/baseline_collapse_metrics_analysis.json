@@ -1,0 +1,50 @@
+{
+  "summary": {
+    "total_features": 0,
+    "feature_dimension": 0,
+    "sample_analysis": {
+      "num_samples": 6,
+      "avg_entropy_decline": 0.7421552737553915,
+      "std_entropy_decline": 0.10920462524469468,
+      "description": "Sample-wise long-context representation collapse measured by SVD entropy decline from early to late chunks"
+    },
+    "global_analysis": {
+      "num_token_classes": 0,
+      "gnc2": 0.0,
+      "unc3": 0.0,
+      "description": "Global token-based collapse metrics (GNC2, UNC3)"
+    }
+  },
+  "sample_analysis": {
+    "num_samples": 6,
+    "avg_entropy_decline": 0.7421552737553915,
+    "std_entropy_decline": 0.10920462524469468,
+    "min_entropy_decline": 0.5276327133178711,
+    "max_entropy_decline": 0.8481646776199341,
+    "entropy_decline_range": 0.320531964302063,
+    "collapse_assessment": "high_collapse",
+    "collapse_patterns": {
+      "strong_decline": 6
+    },
+    "position_analysis": {
+      "avg_chunk_0_entropy": 1.923146406809489,
+      "avg_chunk_1_entropy": 1.6259751518567402,
+      "avg_chunk_2_entropy": 1.5688780148824055,
+      "avg_chunk_3_entropy": 1.5644027789433796,
+      "avg_chunk_4_entropy": 1.1809911330540974,
+      "overall_decline": 0.7421552737553916,
+      "benchmark_avg_chunks": [
+        1.923146406809489,
+        1.6259751518567402,
+        1.5688780148824055,
+        1.5644027789433796,
+        1.1809911330540974
+      ]
+    },
+    "description": "Sample-wise 5-chunk long-context representation collapse measured by SVD entropy decline from chunk_0 to chunk_4"
+  },
+  "global_analysis": {
+    "status": "no_data",
+    "message": "No global metrics available"
+  }
+}
