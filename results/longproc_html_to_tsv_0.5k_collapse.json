@@ -1,0 +1,11 @@
+{
+  "per_sample": [],
+  "summary": {
+    "avg_chunk1_svd_entropy": null,
+    "avg_chunk2_svd_entropy": null,
+    "avg_chunk3_svd_entropy": null,
+    "avg_chunk4_svd_entropy": null,
+    "avg_chunk5_svd_entropy": null,
+    "num_samples": 0
+  }
+}

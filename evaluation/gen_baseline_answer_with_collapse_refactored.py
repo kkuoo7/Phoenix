@@ -124,197 +124,115 @@ def get_model_answers(
     
     # Collapse 수집기 초기화
     collapse_config = create_collapse_config(args)
-    collapse_collector = CollapseCollector(model, tokenizer, collapse_config)
     
-    # Warmup
-    logger.info("Starting warmup...")
-    for _ in range(3):
-        torch.manual_seed(0)
-        question = questions[0]
-        
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-        ]
-        
-        for j in range(len(question["turns"])):
-            qs = question["turns"][j]
-            messages.append({"role": "user", "content": qs})
-            
-            prompt = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
-            input_ids = tokenizer([prompt], add_special_tokens=False).input_ids
-            
-            # 효율적인 특성 수집 (base model 피처 벡터 수집)
-            input_tensor = torch.as_tensor(input_ids).cuda()
-            attention_mask = torch.ones_like(input_tensor)
-            
-            features, token_ids = collapse_collector.collect_features_efficient(
-                input_tensor, attention_mask
-            )
-            
-            if features is not None:
-                collapse_collector.add_batch_features(features, token_ids)
-            
-            # 모델 생성 (한 번만 실행)
-            output_ids, new_token, idx = model.naivegenerate(
-                input_tensor, temperature=temperature, log=True, is_llama3=True
-            )
-            
-            # Baseline 모델: base model의 피처 벡터만 수집
-            
-            # 출력 처리
-            output_ids = output_ids[0][len(input_ids[0]):]
-            stop_token_ids = [
-                tokenizer.eos_token_id, 
-                tokenizer.convert_tokens_to_ids("<|eot_id|>")
-            ]
-            
-            if stop_token_ids:
-                stop_token_ids_index = [
-                    i for i, id in enumerate(output_ids) if id in stop_token_ids
-                ]
-                if len(stop_token_ids_index) > 0:
-                    output_ids = output_ids[:stop_token_ids_index[0]]
-            
-            output = tokenizer.decode(
-                output_ids, spaces_between_special_tokens=False
-            )
-            for special_token in tokenizer.special_tokens_map.values():
-                if isinstance(special_token, list):
-                    for special_tok in special_token:
-                        output = output.replace(special_tok, "")
-                else:
-                    output = output.replace(special_token, "")
-            output = output.strip()
-            
-            messages.append({"role": "assistant", "content": output})
-    
-    logger.info("Warmup completed")
-    
-    # 메인 평가 루프
+    all_turn_collapse = []
+    chunk_entropies_by_index = []  # List of lists: each sublist is all entropies for that chunk index
+
     for question in tqdm(questions, desc="Processing questions"):
-        choices = []
-        
-        for i in range(num_choices):
-            torch.manual_seed(i)
-            messages = [{"role": "system", "content": "You are a helpful assistant."}]
-            turns = []
-            idxs = []
-            new_tokens = []
-            wall_time = []
-            
-            for j in range(len(question["turns"])):
-                qs = question["turns"][j]
-                messages.append({"role": "user", "content": qs})
-                
+        for turn_idx, turn in enumerate(question["turns"]):
+            try:
+                messages = [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                ]
+                for j in range(turn_idx + 1):
+                    qs = question["turns"][j]
+                    messages.append({"role": "user", "content": qs})
                 prompt = tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=True
                 )
                 input_ids = tokenizer([prompt], add_special_tokens=False).input_ids
-                
-                # 효율적인 특성 수집 (base model 피처 벡터 수집)
+                prompt_len = len(input_ids[0])
                 input_tensor = torch.as_tensor(input_ids).cuda()
                 attention_mask = torch.ones_like(input_tensor)
                 
-                features, token_ids = collapse_collector.collect_features_efficient(
-                    input_tensor, attention_mask
-                )
-                
-                if features is not None:
-                    collapse_collector.add_batch_features(features, token_ids)
-                
-                # 시간 측정
-                torch.cuda.synchronize()
-                start_time = time.time()
-                
-                # 모델 생성 (한 번만 실행)
-                output_ids, new_token, idx = model.naivegenerate(
-                    input_tensor, temperature=temperature, log=True, is_llama3=True
-                )
-                
-                # Baseline 모델: base model의 피처 벡터만 수집
-                
-                torch.cuda.synchronize()
-                total_time = time.time() - start_time
-                
-                # 출력 처리
-                output_ids = output_ids[0][len(input_ids[0]):]
-                stop_token_ids = [
-                    tokenizer.eos_token_id, 
-                    tokenizer.convert_tokens_to_ids("<|eot_id|>")
-                ]
-                
-                if stop_token_ids:
-                    stop_token_ids_index = [
-                        i for i, id in enumerate(output_ids) if id in stop_token_ids
-                    ]
-                    if len(stop_token_ids_index) > 0:
-                        output_ids = output_ids[:stop_token_ids_index[0]]
-                
-                output = tokenizer.decode(
-                    output_ids, spaces_between_special_tokens=False
-                )
-                for special_token in tokenizer.special_tokens_map.values():
-                    if isinstance(special_token, list):
-                        for special_tok in special_token:
-                            output = output.replace(special_tok, "")
-                    else:
-                        output = output.replace(special_token, "")
-                output = output.strip()
-                
-                turns.append(output)
-                idxs.append(int(idx))
-                new_tokens.append(int(new_token))
-                wall_time.append(total_time)
-                messages.append({"role": "assistant", "content": output})
-            
-            choices.append({
-                "index": i, "turns": turns, "idxs": idxs, 
-                "new_tokens": new_tokens, "wall_time": wall_time
-            })
-        
-        # 답변 저장
-        os.makedirs(os.path.dirname(answer_file), exist_ok=True)
-        with open(os.path.expanduser(answer_file), "a") as fout:
-            ans_json = {
-                "question_id": question["question_id"],
-                "answer_id": shortuuid.uuid(),
-                "model_id": model_id,
-                "choices": choices,
-                "tstamp": time.time(),
-            }
-            fout.write(json.dumps(ans_json) + "\n")
-    
-    # Collapse 메트릭 계산 및 저장
-    logger.info("Computing collapse metrics...")
+                # 1. 텍스트 생성 (prompt -> 생성)
+                with torch.no_grad():
+                    outputs = model.generate(
+                        input_tensor,
+                        max_new_tokens=max_new_token,
+                        temperature=temperature,
+                        do_sample=temperature > 0,
+                        pad_token_id=tokenizer.eos_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                        return_dict_in_generate=True,
+                        output_scores=False,
+                        output_hidden_states=True,
+                    )
+                    full_ids = outputs.sequences  # (batch, prompt+gen_len)
+                    gen_len = full_ids.shape[1] - prompt_len
+                    if gen_len == 0:
+                        logger.warning(f"질문 {question['question_id']} 턴 {turn_idx}: 생성 토큰 없음")
+                        continue
+                    # past_key_values 얻기 위해 prompt만 forward
+                    prompt_outputs = model(
+                        input_ids=input_tensor,
+                        attention_mask=attention_mask,
+                        use_cache=True,
+                        return_dict=True
+                    )
+                    past_key_values = prompt_outputs.past_key_values
+                    # 생성 구간만 forward (메모리 효율)
+                    gen_input_ids = full_ids[:, prompt_len:]
+                    gen_attention_mask = torch.ones_like(gen_input_ids)
+                    gen_outputs = model(
+                        input_ids=gen_input_ids,
+                        attention_mask=gen_attention_mask,
+                        past_key_values=past_key_values,
+                        output_hidden_states=True,
+                        return_dict=True
+                    )
+                    hidden_states = gen_outputs.hidden_states[-1]  # (batch, gen_len, hidden)
+                    # 안전장치: hidden_states를 항상 float32 + GPU로 변환
+                    if not hidden_states.is_cuda or hidden_states.dtype != torch.float32:
+                        hidden_states = hidden_states.to(dtype=torch.float32, device=model.device)
+                    # CollapseCollector를 사용해 생성 토큰 구간의 hidden states만 추출
+                    turn_collector = CollapseCollector(model, tokenizer, collapse_config)
+                    features, token_ids = turn_collector._extract_features_accurate(
+                        hidden_states, gen_input_ids, gen_attention_mask
+                    )
+                    if features is not None and (not features.is_cuda or features.dtype != torch.float32):
+                        features = features.to(dtype=torch.float32, device=model.device)
+
+                if features is not None and token_ids is not None:
+                    turn_collector.add_batch_features(features, token_ids)
+                    metrics = turn_collector.get_collapse_metrics(input_len=prompt_len, num_chunks=5)
+                    all_turn_collapse.append({
+                        "question_id": question["question_id"],
+                        "turn_idx": turn_idx,
+                        "chunk_svd_entropies": metrics['chunk_svd_entropies'],
+                        "total_generated_tokens": metrics['total_generated_tokens']
+                    })
+                    # summary용 청크별 엔트로피 수집
+                    chunk_entropies = metrics['chunk_svd_entropies']
+                    for i, ent in enumerate(chunk_entropies):
+                        if ent is not None:
+                            if len(chunk_entropies_by_index) <= i:
+                                chunk_entropies_by_index.append([])
+                            chunk_entropies_by_index[i].append(ent)
+                turn_collector.clear()
+            except Exception as e:
+                logger.error(f"Error in question {question['question_id']} turn {turn_idx}: {e}")
+                continue
+    # summary: 각 청크별 평균 SVD entropy
+    num_chunks = 5
+    avg_chunk_svd_entropies = []
+    for i in range(num_chunks):
+        chunk_vals = chunk_entropies_by_index[i] if i < len(chunk_entropies_by_index) else []
+        avg = float(np.mean(chunk_vals)) if chunk_vals else None
+        avg_chunk_svd_entropies.append(avg)
+    summary = {f'avg_chunk{i+1}_svd_entropy': avg_chunk_svd_entropies[i] for i in range(num_chunks)}
+    summary['num_turns'] = len(all_turn_collapse)
+    # 저장
     try:
-        collapse_metrics = collapse_collector.get_collapse_metrics()
-        if collapse_metrics:
-            # 기본 메트릭 저장
-            os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
-            with open(collapse_file, "w") as fout:
-                json.dump(collapse_metrics, fout, indent=2)
-            logger.info(f"Collapse metrics saved to {collapse_file}")
-            logger.info(
-                f"Total tokens analyzed: {collapse_metrics.get('total_tokens', 0)}"
-            )
-            
-            # 추가 분석 리포트 생성
-            analyzer = CollapseAnalyzer(collapse_config)
-            analysis_file = collapse_file.replace('.json', '_analysis.json')
-            analysis = analyzer.generate_report(collapse_metrics, analysis_file)
-            if analysis:
-                logger.info(f"Collapse analysis saved to {analysis_file}")
-        else:
-            logger.warning("No collapse metrics computed")
+        os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
+        with open(collapse_file, "w") as fout:
+            json.dump({'per_turn': all_turn_collapse, 'summary': summary}, fout, indent=2)
+        logger.info(f"Per-turn collapse metrics and summary saved to {collapse_file}")
     except Exception as e:
-        logger.error(f"Failed to compute collapse metrics: {e}")
-        if not collapse_config.continue_on_error:
-            raise
+        logger.error(f"Failed to save collapse metrics: {e}")
     
     # 메모리 정리
-    collapse_collector.clear()
+    # collapse_collector.clear() # This line is removed as per the new_code, as the per-turn collectors handle their own clearing.
     del model
     torch.cuda.empty_cache()
 

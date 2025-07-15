@@ -1,0 +1,67 @@
+{
+  "per_sample": [
+    {
+      "sample_id": 0,
+      "chunk_svd_entropies": [
+        4.335012912750244,
+        4.331549167633057,
+        4.362270355224609,
+        4.348034381866455,
+        4.331715106964111
+      ],
+      "total_generated_tokens": 511
+    },
+    {
+      "sample_id": 1,
+      "chunk_svd_entropies": [
+        4.331596374511719,
+        4.305529594421387,
+        4.350107669830322,
+        4.342395782470703,
+        4.36705207824707
+      ],
+      "total_generated_tokens": 511
+    },
+    {
+      "sample_id": 2,
+      "chunk_svd_entropies": [
+        4.361533164978027,
+        4.422635555267334,
+        4.386563777923584,
+        4.302860260009766,
+        4.334283828735352
+      ],
+      "total_generated_tokens": 511
+    },
+    {
+      "sample_id": 3,
+      "chunk_svd_entropies": [
+        4.356922626495361,
+        4.332046031951904,
+        4.350759029388428,
+        4.361140727996826,
+        4.371485710144043
+      ],
+      "total_generated_tokens": 511
+    },
+    {
+      "sample_id": 4,
+      "chunk_svd_entropies": [
+        4.354031085968018,
+        4.3359479904174805,
+        4.3510260581970215,
+        4.366748332977295,
+        4.365280628204346
+      ],
+      "total_generated_tokens": 511
+    }
+  ],
+  "summary": {
+    "avg_chunk1_svd_entropy": 4.347819232940674,
+    "avg_chunk2_svd_entropy": 4.345541667938233,
+    "avg_chunk3_svd_entropy": 4.360145378112793,
+    "avg_chunk4_svd_entropy": 4.344235897064209,
+    "avg_chunk5_svd_entropy": 4.353963470458984,
+    "num_samples": 5
+  }
+}

@@ -28,48 +28,33 @@ class CollapseAnalyzer:
         return analysis
     
     def _compute_summary(self, metrics_data):
-        """전체 요약 통계"""
+        """전체 요약 통계 (HELMET 방식)"""
         total_tokens = metrics_data.get("total_tokens", 0)
-        token_metrics = metrics_data.get("token_metrics", {})
+        chunk_metrics = metrics_data.get("chunk_metrics", {})
         
-        if not token_metrics:
-            return {"status": "no_data", "message": "No token metrics available"}
+        if not chunk_metrics:
+            return {"status": "no_data", "message": "No chunk metrics available"}
         
-        # 통계 계산
-        svd_entropies = [m['svd_entropy'] for m in token_metrics.values()]
-        sample_counts = [m['num_samples'] for m in token_metrics.values()]
+        # 청크 통계 계산
+        chunk_entropies = chunk_metrics.get("chunk_svd_entropies", [])
+        num_chunks = chunk_metrics.get("num_chunks", 0)
+        avg_svd_entropy = chunk_metrics.get("avg_svd_entropy", 0)
+        std_svd_entropy = chunk_metrics.get("std_svd_entropy", 0)
         
         summary = {
             "total_tokens_analyzed": total_tokens,
-            "tokens_with_metrics": len(token_metrics),
-            "avg_svd_entropy": np.mean(svd_entropies),
-            "std_svd_entropy": np.std(svd_entropies),
-            "avg_samples_per_token": np.mean(sample_counts),
-            "min_samples": min(sample_counts),
-            "max_samples": max(sample_counts)
+            "num_chunks": num_chunks,
+            "avg_svd_entropy": avg_svd_entropy,
+            "std_svd_entropy": std_svd_entropy,
+            "chunk_entropies": chunk_entropies
         }
         
         return summary
     
     def _analyze_token_metrics(self, metrics_data):
-        """토큰별 메트릭 분석"""
-        token_metrics = metrics_data.get("token_metrics", {})
-        
-        if not token_metrics:
-            return {}
-        
-        # 토큰별 분석
-        token_analysis = {}
-        for token_id, metrics in token_metrics.items():
-            svd_entropy = metrics['svd_entropy']
-            num_samples = metrics['num_samples']
-            
-            token_analysis[token_id] = {
-                "svd_entropy": svd_entropy,
-                "num_samples": num_samples
-            }
-        
-        return token_analysis
+        """토큰별 메트릭 분석 (HELMET에서는 사용하지 않음)"""
+        # HELMET 논문에서는 토큰별 엔트로피를 사용하지 않음
+        return {}
     
     def _analyze_overall_metrics(self, metrics_data):
         """전체 메트릭 분석"""
