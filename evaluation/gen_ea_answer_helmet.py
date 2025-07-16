@@ -13,6 +13,7 @@ import numpy as np
 from tqdm import tqdm
 import shortuuid
 import time
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # 경로 설정
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -34,8 +35,6 @@ except ImportError as e:
 from collapse_collector import CollapseCollector
 from collapse_config import CollapseConfig
 from collapse_analyzer import CollapseAnalyzer
-
-from model.ea_model import EaModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -69,19 +68,13 @@ def get_model_answers(
     temperature,
     args
 ):
-    logger.info(f"Loading EA model from {base_model_path}, {ea_model_path}")
-    model = EaModel.from_pretrained(
-        base_model_path=base_model_path,
-        ea_model_path=ea_model_path,
-        total_token=getattr(args, 'total_token', 256),
-        depth=getattr(args, 'depth', 32),
-        top_k=getattr(args, 'top_k', 40),
-        threshold=getattr(args, 'threshold', 0.1),
+    logger.info(f"Loading base model from {base_model_path}")
+    model = AutoModelForCausalLM.from_pretrained(
+        base_model_path,
         torch_dtype=torch.float16,
-        low_cpu_mem_usage=True,
         device_map="auto"
     )
-    tokenizer = model.get_tokenizer()
+    tokenizer = AutoTokenizer.from_pretrained(base_model_path)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     model.eval()
@@ -136,6 +129,7 @@ def get_model_answers(
     all_sample_collapse = []
     for idx, sample in enumerate(tqdm(samples)):
         try:
+            print(f"[DEBUG] 샘플 {idx} 시작")
             if is_longproc:
                 prompt = user_prompt.format(**sample)
             else:
@@ -144,10 +138,27 @@ def get_model_answers(
             input_ids = inputs["input_ids"].to(model.device)
             attention_mask = inputs["attention_mask"].to(model.device)
             prompt_len = input_ids.shape[1]
-            # 답변 생성 (EA 모델 naivegenerate)
-            generated = model.naivegenerate(input_ids, temperature=temperature, log=False, is_llama3=True)
-            full_ids = generated[0]  # (batch, prompt+gen_len)
-            gen_len = full_ids.shape[1] - prompt_len
+            print(f"[DEBUG] 샘플 {idx} prompt_len: {prompt_len}, input_ids.shape: {input_ids.shape}, device: {input_ids.device}")
+            # 수동 디코딩 루프
+            generated_ids = input_ids.clone()
+            all_hidden_states = []
+            for step in range(max_new_token):
+                outputs = model(
+                    input_ids=generated_ids,
+                    attention_mask=torch.ones_like(generated_ids),
+                    output_hidden_states=True,
+                    return_dict=True
+                )
+                next_token_logits = outputs.logits[:, -1, :]
+                next_token_id = torch.argmax(next_token_logits, dim=-1, keepdim=True)
+                print(f"[DEBUG] 샘플 {idx} step={step}, next_token_id={next_token_id.item()}, generated_ids.shape={generated_ids.shape}")
+                generated_ids = torch.cat([generated_ids, next_token_id], dim=1)
+                all_hidden_states.append(outputs.hidden_states[-1][:, -1:, :].detach())
+                if next_token_id.item() == tokenizer.eos_token_id:
+                    print(f"[DEBUG] 샘플 {idx} step={step} - eos_token_id({tokenizer.eos_token_id}) generated, breaking loop.")
+                    break
+            gen_len = generated_ids.shape[1] - prompt_len
+            print(f"[DEBUG] 샘플 {idx} 생성 gen_len: {gen_len}")
             if gen_len == 0:
                 logger.warning(f"샘플 {idx}: 생성 토큰 없음")
                 all_sample_collapse.append({
@@ -156,30 +167,15 @@ def get_model_answers(
                     'total_generated_tokens': 0
                 })
                 continue
-            # past_key_values 얻기 위해 prompt만 forward
-            prompt_outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                use_cache=True,
-                return_dict=True
-            )
-            past_key_values = prompt_outputs.past_key_values
-            # 생성 구간만 forward (output_hidden_states=True)
-            gen_input_ids = full_ids[:, prompt_len:]
+            # 생성 구간만 추출
+            gen_hidden_states = torch.cat(all_hidden_states, dim=1)  # (1, gen_len, hidden)
+            gen_input_ids = generated_ids[:, prompt_len:]
             gen_attention_mask = torch.ones_like(gen_input_ids)
-            gen_outputs = model(
-                input_ids=gen_input_ids,
-                attention_mask=gen_attention_mask,
-                past_key_values=past_key_values,
-                output_hidden_states=True,
-                return_dict=True
-            )
-            hidden_states = gen_outputs.hidden_states[-1]  # (batch, gen_len, hidden)
-            if not hidden_states.is_cuda or hidden_states.dtype != torch.float32:
-                hidden_states = hidden_states.to(dtype=torch.float32, device=model.device)
+            print(f"[DEBUG] 샘플 {idx} gen_hidden_states.shape: {gen_hidden_states.shape}, gen_input_ids.shape: {gen_input_ids.shape}")
+            # collapse metric 계산
             sample_collector = CollapseCollector(model, tokenizer, collapse_config)
             features, token_ids = sample_collector._extract_features_accurate(
-                hidden_states, gen_input_ids, gen_attention_mask
+                gen_hidden_states, gen_input_ids, gen_attention_mask
             )
             if features is not None and (not features.is_cuda or features.dtype != torch.float32):
                 features = features.to(dtype=torch.float32, device=model.device)
@@ -192,6 +188,7 @@ def get_model_answers(
                     'total_generated_tokens': sample_metrics['total_generated_tokens']
                 })
                 sample_collector.clear()
+                print(f"[DEBUG] 샘플 {idx} collapse metric 계산 완료")
             else:
                 logger.warning(f"샘플 {idx}: features 또는 token_ids가 None")
                 all_sample_collapse.append({
@@ -200,10 +197,12 @@ def get_model_answers(
                     'total_generated_tokens': 0
                 })
                 continue
+            print(f"[DEBUG] 샘플 {idx} 종료")
         except Exception as e:
             logger.error(f"샘플 {idx} 처리 중 오류: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
+            print(f"[DEBUG] 샘플 {idx} 예외 발생: {e}\n{traceback.format_exc()}")
             all_sample_collapse.append({
                 'sample_id': idx,
                 'chunk_svd_entropies': [None]*5,
