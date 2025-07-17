@@ -292,7 +292,7 @@ class EaModel(nn.Module):
                 # accepted token (draft feature)
                 for i in range(accept_length):
                     feature_index = retrieve_indices[best_candidate, i + 1].item()
-                    hidden_state_collector.add(state='speculated"', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
+                    hidden_state_collector.add(state='speculated', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
                 # bonus token (accept_length 이후 첫 토큰) 피처 추출
                 if (accept_length + 1) < retrieve_indices.shape[1]:
                     feature_index = retrieve_indices[best_candidate, accept_length + 1].item()
