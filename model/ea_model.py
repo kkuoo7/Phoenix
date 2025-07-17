@@ -180,7 +180,7 @@ class EaModel(nn.Module):
             output_hidden_states=False
     ):
         """
-        이 함수는 Speculative Decoding의 검증 단계와 초기화 단계에서 모두 사용됩낟. 
+        이 함수는 Speculative Decoding의 검증 단계와 초기화 단계에서 모두 사용됩니다.
         따라서 드래프트 모델과 타겟 모델 모두 호출할 수 있어야 한다. 
 
         EaModel은 기본적으로 타겟 모델(base_model)을 사용한 연산을 수행한다. 
@@ -292,14 +292,14 @@ class EaModel(nn.Module):
                 # accepted token (draft feature)
                 for i in range(accept_length): 
                     feature_index = retrieve_indices[best_candidate, i+1].item()
-                    hidden_state_collector.add(state='accepted', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
+                    hidden_state_collector.add(state='speculated"', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
                 
                 if accept_length < len(candidates[best_candidate]): 
                     feature_index = retrieve_indices[best_candidate, accept_length+1].item()
-                    hidden_state_collector.add(state='rejected', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
-                else: 
-                    bonus_feature_index = retrieve_indices[best_candidate, accept_length].item() 
-                    hidden_state_collector.add(state='bonus', hidden_state=target_hidden_states[:, bonus_feature_index:bonus_feature_index+1])
+                    hidden_state_collector.add(state='speculated', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
+                # else: 
+                #     bonus_feature_index = retrieve_indices[best_candidate, accept_length].item() 
+                #     hidden_state_collector.add(state='bonus', hidden_state=target_hidden_states[:, bonus_feature_index:bonus_feature_index+1])
 
             try:
                 accept_length_list.append(accept_length.item())

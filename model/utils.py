@@ -229,9 +229,17 @@ def initialize_tree0(input_ids, model, past_key_values, logits_processor):
     #     return draft_tokens, retrieve_indices,tree_mask,tree_position_ids, hidden_states, token
     return draft_tokens, retrieve_indices,tree_mask,tree_position_ids, logits, hidden_state, sample_token
 
-def initialize_tree(input_ids, model, past_key_values, logits_processor):
-    outputs, orig, hidden_states = model(
-        input_ids, past_key_values=past_key_values, output_orig=True
+def initialize_tree(input_ids, model, past_key_values, logits_processor, 
+            output_hidden_states=False):
+    """
+    EaModel의 커스텀 forward를 호출할 때, output_hidden_states를 전달. 
+    이 모델은 EaModel의 인스턴스이먀, 내부적으로 draft_model을 호출하게 된다. 
+    EaModel의 forwad가 output_hidden_states를 받아 draft_model에 전달하도록 수정 필요. 
+    """
+
+    outputs, orig, draft_hidden_states = model(
+        input_ids, past_key_values=past_key_values, output_orig=True,
+        output_hidden_states=output_hidden_states
     )
 
     if logits_processor is not None:
@@ -243,10 +251,11 @@ def initialize_tree(input_ids, model, past_key_values, logits_processor):
         token = torch.argmax(orig[:, -1])
         token = token[None, None]
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
-    # Clone the output hidden states
 
-    draft_tokens, retrieve_indices,tree_mask,tree_position_ids = model.ea_layer.topK_genrate(hidden_states, input_ids, model.base_model.lm_head,logits_processor)
-    return draft_tokens, retrieve_indices,tree_mask,tree_position_ids, orig, hidden_states, token
+    draft_tokens, retrieve_indices,tree_mask,tree_position_ids = model.ea_layer.topK_genrate(
+        draft_hidden_states, input_ids, model.base_model.lm_head, logits_processor)
+
+    return draft_tokens, retrieve_indices, tree_mask, tree_position_ids, orig, draft_hidden_states, token
 
 
 def reset_tree_mode(
@@ -305,19 +314,22 @@ def tree_decoding(
         tree_position_ids,
         input_ids,
         retrieve_indices,
+        output_hidden_states=False
 ):
     position_ids = tree_position_ids + input_ids.shape[1]
 
     # 타겟 모델로 draft tokens 검증
-    outputs, tree_logits, hidden_state = model(
+    # EaModel의 forward를 호출하며 output_hidden_states를 전달
+    outputs, tree_logits, target_hidden_states = model(
         tree_candidates,
         output_orig=True,
         past_key_values=past_key_values,
         position_ids=position_ids,
+        output_hidden_states=output_hidden_states # 핵심
     )
 
     logits = tree_logits[0, retrieve_indices]
-    return logits, hidden_state, outputs
+    return logits, target_hidden_states
 
 
 
