@@ -27,8 +27,13 @@ class CollapseCollector:
             hidden_state (torch.Tensor): 수집된 (batch_size, 1, hidden_dim) 또는 
                                         (batch_size, hidden_dim) 형태의 히든 벡터.
         """
-        # 배치 차원을 제거하고(squeeze) CPU로 이동하여 저장
-        self.hidden_states[state].append(hidden_state.squeeze(0).detach().cpu())
+        # 배치 차원만 제거하고 CPU로 이동하여 저장
+        if hidden_state.dim() == 3:  # (batch_size, 1, hidden_dim)
+            hidden_state = hidden_state.squeeze(0)  # (1, hidden_dim)
+        elif hidden_state.dim() == 2:  # (batch_size, hidden_dim)
+            hidden_state = hidden_state.squeeze(0)  # (hidden_dim)
+        
+        self.hidden_states[state].append(hidden_state.detach().cpu())
 
     def get_hidden_states_by_state(self, state_type: str) -> list[torch.Tensor]:
         """지정된 상태의 모든 히든 벡터 리스트를 반환합니다."""

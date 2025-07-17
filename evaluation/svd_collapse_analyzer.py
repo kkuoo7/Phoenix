@@ -12,11 +12,13 @@ class SVDCollapseAnalyzer:
     def __init__(self, config):
         self.config = config
 
-    def get_generation_features(self, features, input_len):
-        """프롬프트 이후 생성 토큰에 해당하는 feature만 추출"""
-        if features.shape[0] <= input_len:
+    def get_generation_features(self, features):
+        if features is None or features.numel() == 0:
             return torch.tensor([])
-        return features[input_len:]
+        if features.dim() == 1:
+            features = features.unsqueeze(0)
+
+        return features
 
     def get_chunk_svd_entropies(self, gen_features, num_chunks=5):
         n = gen_features.shape[0]
@@ -34,8 +36,8 @@ class SVDCollapseAnalyzer:
                 entropies.append(self._compute_svd_entropy_cov(chunk))
         return entropies
 
-    def get_collapse_metrics(self, features, input_len, num_chunks=5):
-        gen_features = self.get_generation_features(features, input_len)
+    def get_collapse_metrics(self, features, num_chunks=5):
+        gen_features = self.get_generation_features(features)
         entropies = self.get_chunk_svd_entropies(gen_features, num_chunks=num_chunks)
         return {
             'total_generated_tokens': gen_features.shape[0],

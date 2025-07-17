@@ -658,8 +658,11 @@ class Model(nn.Module):
 
     @torch.no_grad()
     def topK_genrate(self, hidden_states, input_ids, head, logits_processor):
+        # 항상 embed_tokens의 디바이스로 맞춤
+        device = self.embed_tokens.weight.device
+        hidden_states = hidden_states.to(device)
+        input_ids = input_ids.to(device)
 
-        input_ids = input_ids.to(hidden_states.device)
         total_tokens = self.total_tokens
         depth = self.depth
         top_k = self.top_k

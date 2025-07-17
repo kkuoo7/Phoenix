@@ -237,7 +237,8 @@ def initialize_tree(input_ids, model, past_key_values, logits_processor,
     EaModel의 forwad가 output_hidden_states를 받아 draft_model에 전달하도록 수정 필요. 
     """
 
-    outputs, orig, draft_hidden_states = model(
+    # 디버깅: model(...) 반환값 확인
+    orig, draft_hidden_states = model(
         input_ids, past_key_values=past_key_values, output_orig=True,
         output_hidden_states=output_hidden_states
     )
@@ -251,6 +252,10 @@ def initialize_tree(input_ids, model, past_key_values, logits_processor,
         token = torch.argmax(orig[:, -1])
         token = token[None, None]
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
+
+    # embed_device = model.ea_layer.embed_tokens.weight.device
+    # draft_hidden_states = draft_hidden_states.to(embed_device)
+    # input_ids = input_ids.to(embed_device)
 
     draft_tokens, retrieve_indices,tree_mask,tree_position_ids = model.ea_layer.topK_genrate(
         draft_hidden_states, input_ids, model.base_model.lm_head, logits_processor)
@@ -320,7 +325,7 @@ def tree_decoding(
 
     # 타겟 모델로 draft tokens 검증
     # EaModel의 forward를 호출하며 output_hidden_states를 전달
-    outputs, tree_logits, target_hidden_states = model(
+    tree_logits, target_hidden_states = model(
         tree_candidates,
         output_orig=True,
         past_key_values=past_key_values,

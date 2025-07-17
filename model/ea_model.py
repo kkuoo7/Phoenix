@@ -21,7 +21,7 @@ from .configs import EConfig
 
 from typing import Optional
 from .utils import *
-from HASS.evaluation.collapse_collector import Collector
+from HASS.evaluation.collapse_collector import CollapseCollector
 
 
 
@@ -220,7 +220,7 @@ class EaModel(nn.Module):
             max_length=2048,
             log=False,
             is_llama3=False,
-            hidden_state_collector: Optional[Collector] = None,
+            hidden_state_collector: Optional[CollapseCollector] = None,
     ):
         if is_llama3:
             stop_token_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
@@ -290,16 +290,20 @@ class EaModel(nn.Module):
             # 조건부 피처 수집 로직 
             if hidden_state_collector:
                 # accepted token (draft feature)
-                for i in range(accept_length): 
-                    feature_index = retrieve_indices[best_candidate, i+1].item()
+                for i in range(accept_length):
+                    feature_index = retrieve_indices[best_candidate, i + 1].item()
                     hidden_state_collector.add(state='speculated"', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
-                
-                if accept_length < len(candidates[best_candidate]): 
-                    feature_index = retrieve_indices[best_candidate, accept_length+1].item()
+                # bonus token (accept_length 이후 첫 토큰) 피처 추출
+                if (accept_length + 1) < retrieve_indices.shape[1]:
+                    feature_index = retrieve_indices[best_candidate, accept_length + 1].item()
                     hidden_state_collector.add(state='speculated', hidden_state=draft_hidden_state[:, feature_index:feature_index+1, :])
-                # else: 
-                #     bonus_feature_index = retrieve_indices[best_candidate, accept_length].item() 
-                #     hidden_state_collector.add(state='bonus', hidden_state=target_hidden_states[:, bonus_feature_index:bonus_feature_index+1])
+                elif (accept_length + 1) == retrieve_indices.shape[1]:
+                    # all accepted 상황: 실제 생성 토큰의 target_hidden_state 저장
+                    if target_hidden_states is not None:
+                        hidden_state_collector.add(state='speculated', hidden_state=target_hidden_states[:, -1:, :])
+                    else:
+                        print(f"[DEBUG][WARN] target_hidden_states is None at step {idx}. Skipping hidden state collection.")
+            
 
             try:
                 accept_length_list.append(accept_length.item())
@@ -351,7 +355,7 @@ class EaModel(nn.Module):
             max_length=2048,
             log=False,
             is_llama3=False,
-            hidden_state_collector: Optional[Collector] = None,
+            hidden_state_collector: Optional[CollapseCollector] = None,
 
     ):
 
@@ -402,13 +406,23 @@ class EaModel(nn.Module):
                 input_id = outputs.logits[:, -1:].argmax(dim=-1)
             
             if hidden_state_collector:
-                penultimate_feature = outputs.hidden_states[-1][:, -1:, :]
-                hidden_state_collector.add(
-                    state='baseline_accepted',
-                    hidden_state=penultimate_feature
-                )
+                if outputs.hidden_states is not None and len(outputs.hidden_states) > 0:
+                    penultimate_feature = outputs.hidden_states[-1][:, -1:, :]
+                    hidden_state_collector.add(
+                        state='baseline_accepted',
+                        hidden_state=penultimate_feature
+                    )
+                else:
+                    print(f"Warning: outputs.hidden_states is None or empty at step {idx}. Skipping hidden state collection.")
+                    # Fallback: use the last hidden state from the model output
+                    if hasattr(outputs, 'last_hidden_state'):
+                        penultimate_feature = outputs.last_hidden_state[:, -1:, :]
+                        hidden_state_collector.add(
+                            state='baseline_accepted',
+                            hidden_state=penultimate_feature
+                        )
             
-            outputs = self.base_model(input_id, use_cache=True, past_key_values=past_key_values)
+            outputs = self.base_model(input_id, use_cache=True, past_key_values=past_key_values, output_hidden_states=True)
             input_ids = torch.cat([input_ids, input_id], dim=-1)
             new_token+=1
 

@@ -6,6 +6,7 @@ python3 gen_model_answer.py --model-path lmsys/fastchat-t5-3b-v1.0 --model-id fa
 import argparse
 import json
 import os
+import torch
 script_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(script_dir)
 #os.environ["CUDA_VISIBLE_DEVICES"] = "7"
@@ -24,7 +25,6 @@ from model.utils import *
 
 
 import random
-import torch
 import numpy as np
 
 from HASS.evaluation.collapse_collector import CollapseCollector
@@ -50,6 +50,7 @@ def run_eval(
         question_begin,
         question_end,
         answer_file,
+        collapse_file,  # collapse_file 파라미터 추가
         max_new_token,
         num_choices,
         num_gpus_per_model,
@@ -86,6 +87,7 @@ def run_eval(
                 model_id,
                 questions[i: i + chunk_size],
                 answer_file,
+                collapse_file,  # collapse_file 파라미터 추가
                 max_new_token,
                 num_choices,
                 num_gpus_per_model,
@@ -181,6 +183,7 @@ def get_model_answers(
                 temperature=temperature,
                 log=True,
                 is_llama3=True,
+                hidden_state_collector=collector,
             )
             torch.cuda.synchronize()
             total_time = time.time() - start_time
@@ -241,6 +244,8 @@ def get_model_answers(
             new_tokens = []
             wall_time = []
             accept_length_lists = []
+            # [수정] 샘플 단위로 collector clear
+            collector.clear()
             for j in range(len(question["turns"])):
                 qs = question["turns"][j]
                 messages.append({
@@ -253,12 +258,7 @@ def get_model_answers(
                     add_generation_prompt=True,
                 )
                 input_ids = tokenizer([prompt], add_special_tokens=False, ).input_ids
-                
                 prompt_len = len(input_ids[0])
-                collector.clear()
-
-                # try:
-                collector.clear()
                 torch.cuda.synchronize()
                 start_time = time.time()
 
@@ -267,12 +267,11 @@ def get_model_answers(
                     temperature=temperature,
                     log=True,
                     is_llama3=True,
-                    hidden_state_collector=collector # 핵심! 
+                    hidden_state_collector=collector # collector에 계속 누적
                 )
                 torch.cuda.synchronize()
                 total_time = time.time() - start_time
                 output_ids = output_ids[0][len(input_ids[0]):]
-                # be consistent with the template's stop_token_ids
                 stop_token_ids = [
                     tokenizer.eos_token_id,
                     tokenizer.convert_tokens_to_ids("<|eot_id|>")
@@ -291,9 +290,6 @@ def get_model_answers(
                     output_ids,
                     spaces_between_special_tokens=False,
                 )
-                # stop_str = "</s>"
-                # if stop_str and output.find(stop_str) > 0:
-                #     output = output[: output.find(stop_str)]
                 for special_token in tokenizer.special_tokens_map.values():
                     if isinstance(special_token, list):
                         for special_tok in special_token:
@@ -301,13 +297,6 @@ def get_model_answers(
                     else:
                         output = output.replace(special_token, "")
                 output = output.strip()
-
-                if new_token > 0: 
-                    current_turn_features = collector.get_hidden_states_by_state('speculated')
-                    metrics = analyzer.get_collapse_metrics(current_turn_features, prompt_len, num_chunks=5)
-                    metrics['question_id'] = question['question_id']
-                    metrics['turn'] = j + 1
-                    all_turn_collapse_metrics.append(metrics)
 
                 turns.append(output)
                 idxs.append(int(idx))
@@ -318,8 +307,22 @@ def get_model_answers(
                     "role": "assistant",
                     "content": output
                 })
+                # [DEBUG] 턴별 피처 수집/생성 토큰 수 확인
+                collected_features = len(collector.get_hidden_states_by_state('speculated'))
+                print(f"[DEBUG] question_id={question['question_id']}, turn={j+1}, new_token={new_token}, collected_features={collected_features}")
             # torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time, "accept_length": accept_length_lists})
+
+        # [수정] 샘플 전체에 대해 collapse metric 계산
+        all_features = collector.get_hidden_states_by_state('speculated')
+        print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}, total_generated_tokens={sum(new_tokens)}")
+        if len(all_features) > 0:
+            all_features = torch.cat(all_features, dim=0)
+            print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
+            metrics = analyzer.get_collapse_metrics(all_features, num_chunks=5)
+            print(f"[DEBUG] sample metrics={metrics}")
+            metrics['question_id'] = question['question_id']
+            all_turn_collapse_metrics.append(metrics)
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
@@ -338,9 +341,11 @@ def get_model_answers(
         num_chunks = 5
         entropies_by_chunk = [[] for _ in range(num_chunks)]
         for turn_metrics in all_turn_collapse_metrics:
-            for i, entropy in enumerate(turn_metrics.get_chunk_svd_entropies(num_chunks=num_chunks)):
-                if entropy is not None and i < num_chunks: 
-                    entropies_by_chunk[i].append(entropy)
+            # turn_metrics는 dict이므로 직접 접근
+            if 'chunk_svd_entropies' in turn_metrics:
+                for i, entropy in enumerate(turn_metrics['chunk_svd_entropies']):
+                    if entropy is not None and i < num_chunks: 
+                        entropies_by_chunk[i].append(entropy)
         for i, chunk_entropies in enumerate(entropies_by_chunk):
             avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
             summary[f'avg_chunk_{i+1}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None
@@ -352,6 +357,8 @@ def get_model_answers(
             'summary': summary
         }
 
+        # collapse_file 저장 전 디렉토리 생성
+        os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
         with open(collapse_file, "w") as fout:
             json.dump(report, fout, indent=2)
         logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
@@ -464,6 +471,13 @@ if __name__ == "__main__":
         default=42,
     )
 
+    parser.add_argument(
+        "--collapse-file", 
+        type=str, 
+        default=None,
+        help="Collapse 분석 결과를 저장할 파일 경로"
+    )
+
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -480,7 +494,14 @@ if __name__ == "__main__":
     else:
         answer_file = f"{args.bench_name}/{args.model_id}.jsonl"
 
+    # collapse_file 설정
+    if args.collapse_file:
+        collapse_file = args.collapse_file
+    else:
+        collapse_file = f"{args.bench_name}/{args.model_id}_collapse.json"
+
     print(f"Output to {answer_file}")
+    print(f"Collapse analysis to {collapse_file}")
 
     run_eval(
         args.base_model_path,
@@ -490,6 +511,7 @@ if __name__ == "__main__":
         args.question_begin,
         args.question_end,
         answer_file,
+        collapse_file,  # collapse_file 파라미터 추가
         args.max_new_token,
         args.num_choices,
         args.num_gpus_per_model,

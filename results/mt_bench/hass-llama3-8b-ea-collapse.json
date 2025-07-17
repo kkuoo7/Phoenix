@@ -1,0 +1,45 @@
+{
+  "per_turn_metrics": [
+    {
+      "total_generated_tokens": 95,
+      "chunk_svd_entropies": [
+        2.755699872970581,
+        2.7029552459716797,
+        2.760939836502075,
+        2.5785436630249023,
+        2.777585506439209
+      ],
+      "question_id": 82
+    },
+    {
+      "total_generated_tokens": 41,
+      "chunk_svd_entropies": [
+        1.6956262588500977,
+        1.8977961540222168,
+        1.9145389795303345,
+        1.7367719411849976,
+        2.0585291385650635
+      ],
+      "question_id": 83
+    },
+    {
+      "total_generated_tokens": 90,
+      "chunk_svd_entropies": [
+        2.697849988937378,
+        2.7846662998199463,
+        2.6246542930603027,
+        2.70621919631958,
+        2.5938212871551514
+      ],
+      "question_id": 84
+    }
+  ],
+  "summary": {
+    "avg_chunk_1_svd_entropy": 2.383058706919352,
+    "avg_chunk_2_svd_entropy": 2.4618058999379477,
+    "avg_chunk_3_svd_entropy": 2.4333777030309043,
+    "avg_chunk_4_svd_entropy": 2.340511600176493,
+    "avg_chunk_5_svd_entropy": 2.476645310719808,
+    "total_analyzed_turns": 3
+  }
+}

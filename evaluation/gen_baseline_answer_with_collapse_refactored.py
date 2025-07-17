@@ -4,6 +4,7 @@ Usage:
 python3 gen_model_answer.py --model-path lmsys/fastchat-t5-3b-v1.0 --model-id fastchat-t5-3b-v1.0
 """
 import argparse
+import torch
 import json
 import os
 script_dir = os.path.dirname(__file__)
@@ -23,7 +24,6 @@ from model.kv_cache import initialize_past_key_values
 from model.utils import *
 
 import random
-import torch
 import numpy as np
 
 from collapse_collector import CollapseCollector
@@ -42,98 +42,98 @@ def setup_seed(seed):
      torch.backends.cudnn.deterministic = True
 
 
-def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None, max_steps=512):
-    stop_token_ids = [
-        tokenizer.eos_token_id,
-        tokenizer.convert_tokens_to_ids("<|eot_id|>")
-    ]
-    assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
-    # Avoid modifying the input_ids in-place
-    input_ids = input_ids.clone()
-    model.ea_layer.reset_kv()
+# def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None, max_steps=512):
+#     stop_token_ids = [
+#         tokenizer.eos_token_id,
+#         tokenizer.convert_tokens_to_ids("<|eot_id|>")
+#     ]
+#     assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+#     # Avoid modifying the input_ids in-place
+#     input_ids = input_ids.clone()
+#     model.ea_layer.reset_kv()
 
-    if hasattr(model, "tree_choices") and model.tree_choices == tree_choices:
-        tree_buffers = model.tree_buffers
-    else:
-        tree_buffers = generate_tree_buffers(
-            tree_choices, device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
-        )
-        tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
-            model.base_model.lm_head.weight.device)
-    model.tree_buffers = tree_buffers
-    model.tree_choices = tree_choices
+#     if hasattr(model, "tree_choices") and model.tree_choices == tree_choices:
+#         tree_buffers = model.tree_buffers
+#     else:
+#         tree_buffers = generate_tree_buffers(
+#             tree_choices, device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
+#         )
+#         tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
+#             model.base_model.lm_head.weight.device)
+#     model.tree_buffers = tree_buffers
+#     model.tree_choices = tree_choices
 
-    # Initialize the past key and value states
-    if hasattr(model, "past_key_values"):
-        past_key_values = model.past_key_values
-        past_key_values_data = model.past_key_values_data
-        current_length_data = model.current_length_data
-        # Reset the past key and value states
-        current_length_data.zero_()
-    else:
-        (
-            past_key_values,
-            past_key_values_data,
-            current_length_data,
-        ) = initialize_past_key_values(model.base_model)
-        model.past_key_values = past_key_values
-        model.past_key_values_data = past_key_values_data
-        model.current_length_data = current_length_data
+#     # Initialize the past key and value states
+#     if hasattr(model, "past_key_values"):
+#         past_key_values = model.past_key_values
+#         past_key_values_data = model.past_key_values_data
+#         current_length_data = model.current_length_data
+#         # Reset the past key and value states
+#         current_length_data.zero_()
+#     else:
+#         (
+#             past_key_values,
+#             past_key_values_data,
+#             current_length_data,
+#         ) = initialize_past_key_values(model.base_model)
+#         model.past_key_values = past_key_values
+#         model.past_key_values_data = past_key_values_data
+#         model.current_length_data = current_length_data
 
-    input_len = input_ids.shape[1]
-    reset_tree_mode(model)
-    tree_logits, logits, hidden_state, sample_token = initialize_tree(
-        input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
-    )
-    new_token = 0
+#     input_len = input_ids.shape[1]
+#     reset_tree_mode(model)
+#     tree_logits, logits, hidden_state, sample_token = initialize_tree(
+#         input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
+#     )
+#     new_token = 0
 
-    for idx in range(max_steps):
-        candidates, cart_candidates_prob, tree_candidates = generate_candidates(
-            tree_logits,
-            tree_buffers["tree_indices"],
-            tree_buffers["retrieve_indices"],
-            sample_token,
-            logits_processor
-        )
-        logits, hidden_state_new, outputs = tree_decoding(
-            model,
-            tree_candidates,
-            past_key_values,
-            tree_buffers["tree_position_ids"],
-            input_ids,
-            tree_buffers["retrieve_indices_head"],
-        )
-        best_candidate, accept_length, sample_p = evaluate_posterior(
-            logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
-            tree_candidates, tree_buffers["b_indices"]
-        )
-        input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
-            input_ids,
-            candidates,
-            best_candidate,
-            accept_length,
-            tree_buffers["retrieve_indices"],
-            logits_processor,
-            logits,
-            tree_logits,
-            new_token,
-            past_key_values_data,
-            current_length_data,
-            model,
-            hidden_state,
-            hidden_state_new,
-            sample_p
-        )
+#     for idx in range(max_steps):
+#         candidates, cart_candidates_prob, tree_candidates = generate_candidates(
+#             tree_logits,
+#             tree_buffers["tree_indices"],
+#             tree_buffers["retrieve_indices"],
+#             sample_token,
+#             logits_processor
+#         )
+#         logits, hidden_state_new, outputs = tree_decoding(
+#             model,
+#             tree_candidates,
+#             past_key_values,
+#             tree_buffers["tree_position_ids"],
+#             input_ids,
+#             tree_buffers["retrieve_indices_head"],
+#         )
+#         best_candidate, accept_length, sample_p = evaluate_posterior(
+#             logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
+#             tree_candidates, tree_buffers["b_indices"]
+#         )
+#         input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
+#             input_ids,
+#             candidates,
+#             best_candidate,
+#             accept_length,
+#             tree_buffers["retrieve_indices"],
+#             logits_processor,
+#             logits,
+#             tree_logits,
+#             new_token,
+#             past_key_values_data,
+#             current_length_data,
+#             model,
+#             hidden_state,
+#             hidden_state_new,
+#             sample_p
+#         )
 
-        if stop_token_ids[0] in input_ids[0, input_len:].tolist():
-            break
-        if stop_token_ids[1] in input_ids[0, input_len:].tolist():
-            break
-        if new_token > 1024:
-            break
-        if input_ids.shape[1] > 1960:
-            break
-    return input_ids, new_token, idx
+#         if stop_token_ids[0] in input_ids[0, input_len:].tolist():
+#             break
+#         if stop_token_ids[1] in input_ids[0, input_len:].tolist():
+#             break
+#         if new_token > 1024:
+#             break
+#         if input_ids.shape[1] > 1960:
+#             break
+#     return input_ids, new_token, idx
 
 
 def run_eval(
@@ -144,6 +144,7 @@ def run_eval(
         question_begin,
         question_end,
         answer_file,
+        collapse_file,  # collapse_file 파라미터 추가
         max_new_token,
         num_choices,
         num_gpus_per_model,
@@ -180,6 +181,7 @@ def run_eval(
                 model_id,
                 questions[i: i + chunk_size],
                 answer_file,
+                collapse_file,  # collapse_file 파라미터 추가
                 max_new_token,
                 num_choices,
                 num_gpus_per_model,
@@ -339,6 +341,8 @@ def get_model_answers(
             idxs = []
             new_tokens = []
             wall_time = []
+            # [수정] 샘플 단위로 collector clear
+            collector.clear()
             for j in range(len(question["turns"])):
                 qs = question["turns"][j]
                 messages.append({
@@ -351,12 +355,7 @@ def get_model_answers(
                     add_generation_prompt=True,
                 )
                 input_ids = tokenizer([prompt], add_special_tokens=False, ).input_ids
-                
-                # collapse metric 수집을 위한 프롬프트 길이 
                 prompt_len = len(input_ids[0])
-                # 매 턴마다 collector 초기화
-                collector.clear()
-                
                 torch.cuda.synchronize()
                 start_time = time.time()
 
@@ -365,12 +364,11 @@ def get_model_answers(
                     temperature=temperature,
                     log=True,
                     is_llama3=True,
-                    hidden_state_collector=collector # 핵심! 
+                    hidden_state_collector=collector # collector에 계속 누적
                 )
                 torch.cuda.synchronize()
                 total_time = time.time() - start_time
                 output_ids = output_ids[0][len(input_ids[0]):]
-                # be consistent with the template's stop_token_ids
                 stop_token_ids = [
                     tokenizer.eos_token_id,
                     tokenizer.convert_tokens_to_ids("<|eot_id|>")
@@ -389,9 +387,6 @@ def get_model_answers(
                     output_ids,
                     spaces_between_special_tokens=False,
                 )
-                # stop_str = "</s>"
-                # if stop_str and output.find(stop_str) > 0:
-                #     output = output[: output.find(stop_str)]
                 for special_token in tokenizer.special_tokens_map.values():
                     if isinstance(special_token, list):
                         for special_tok in special_token:
@@ -399,14 +394,6 @@ def get_model_answers(
                     else:
                         output = output.replace(special_token, "")
                 output = output.strip()
-
-                if new_token > 0: 
-                    # collector로 부터 전체 피처를 가져옵니다. 
-                    current_turn_features = collector.get_hidden_states_by_state('baseline_accepted')
-                    metrics = analyzer.get_collapse_metrics(current_turn_features, prompt_len, num_chunks=5)
-                    metrics['question_id'] = question['question_id']
-                    metrics['turn'] = j + 1
-                    all_turn_collapse_metrics.append(metrics)
 
                 turns.append(output)
                 idxs.append(int(idx))
@@ -418,6 +405,17 @@ def get_model_answers(
                 })
             # torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time})
+
+        # [수정] 샘플 전체에 대해 collapse metric 계산
+        all_features = collector.get_hidden_states_by_state('baseline_accepted')
+        print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}")
+        if len(all_features) > 0:
+            all_features = torch.cat(all_features, dim=0)
+            print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
+            metrics = analyzer.get_collapse_metrics(all_features, num_chunks=5)
+            print(f"[DEBUG] sample metrics={metrics}")
+            metrics['question_id'] = question['question_id']
+            all_turn_collapse_metrics.append(metrics)
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
@@ -436,9 +434,11 @@ def get_model_answers(
         num_chunks = 5 
         entropies_by_chunk = [[] for _ in range(num_chunks)]
         for turn_metrics in all_turn_collapse_metrics:
-            for i, entropy in enumerate(turn_metrics.get_chunk_svd_entropies(num_chunks=num_chunks)):
-                if entropy is not None and i < num_chunks: 
-                    entropies_by_chunk[i].append(entropy)
+            # turn_metrics는 dict이므로 직접 접근
+            if 'chunk_svd_entropies' in turn_metrics:
+                for i, entropy in enumerate(turn_metrics['chunk_svd_entropies']):
+                    if entropy is not None and i < num_chunks: 
+                        entropies_by_chunk[i].append(entropy)
         
         for i, chunk_entropies in enumerate(entropies_by_chunk):
             avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
@@ -451,6 +451,8 @@ def get_model_answers(
             'summary': summary
         }
         
+        # collapse_file 저장 전 디렉토리 생성
+        os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
         with open(collapse_file, "w") as fout:
             json.dump(report, fout, indent=2)
         logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
@@ -568,6 +570,13 @@ if __name__ == "__main__":
         default=42,
     )
 
+    parser.add_argument(
+        "--collapse-file", 
+        type=str, 
+        default=None,
+        help="Collapse 분석 결과를 저장할 파일 경로"
+    )
+
     args = parser.parse_args()
 
     setup_seed(args.seed)
@@ -584,7 +593,14 @@ if __name__ == "__main__":
     else:
         answer_file = f"{args.bench_name}/{args.model_id}.jsonl"
 
+    # collapse_file 설정
+    if args.collapse_file:
+        collapse_file = args.collapse_file
+    else:
+        collapse_file = f"{args.bench_name}/{args.model_id}_collapse.json"
+
     print(f"Output to {answer_file}")
+    print(f"Collapse analysis to {collapse_file}")
 
     run_eval(
         args.base_model_path,
@@ -594,6 +610,7 @@ if __name__ == "__main__":
         args.question_begin,
         args.question_end,
         answer_file,
+        collapse_file,  # collapse_file 파라미터 추가
         args.max_new_token,
         args.num_choices,
         args.num_gpus_per_model,

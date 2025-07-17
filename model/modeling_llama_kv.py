@@ -1076,6 +1076,11 @@ class LlamaModel(LlamaPreTrainedModel):
             all_hidden_states += (hidden_states,)
 
         next_cache = next_decoder_cache if use_cache else None
+        
+        # 롤백: fallback 코드 제거
+        # if output_hidden_states and all_hidden_states is None:
+        #     all_hidden_states = (hidden_states,)
+        
         if not return_dict:
             return tuple(
                 v
