@@ -319,7 +319,9 @@ def get_model_answers(
         if len(all_features) > 0:
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
-            metrics = analyzer.get_collapse_metrics(all_features, num_chunks=5)
+            
+            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=128)
+            
             print(f"[DEBUG] sample metrics={metrics}")
             metrics['question_id'] = question['question_id']
             all_turn_collapse_metrics.append(metrics)
@@ -338,22 +340,25 @@ def get_model_answers(
 
     if collapse_file:
         summary = {}
-        num_chunks = 5
-        entropies_by_chunk = [[] for _ in range(num_chunks)]
-        for turn_metrics in all_turn_collapse_metrics:
-            # turn_metrics는 dict이므로 직접 접근
-            if 'chunk_svd_entropies' in turn_metrics:
-                for i, entropy in enumerate(turn_metrics['chunk_svd_entropies']):
-                    if entropy is not None and i < num_chunks: 
-                        entropies_by_chunk[i].append(entropy)
-        for i, chunk_entropies in enumerate(entropies_by_chunk):
-            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
-            summary[f'avg_chunk_{i+1}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None
-       
-        summary['total_analyzed_turns'] = len(all_turn_collapse_metrics)
+        # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
+        # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
+        entropies_by_chunk_idx = {} 
+
+        for turn_metrics in all_turn_collapse_metrics: 
+            if 'fixed_chunk_svd_entropies' in turn_metrics: 
+                # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
+                for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
+                    entropies_by_chunk_idx[i].append(entropy)
         
+        # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 
+        for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()): 
+            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
+            summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None 
+
+        summary['total_analyzezd_smaples'] = len(all_turn_collapse_metrics)
+
         report = {
-            'per_turn_metrics': all_turn_collapse_metrics,
+            'per_sample_metrics': all_turn_collapse_metrics, 
             'summary': summary
         }
 

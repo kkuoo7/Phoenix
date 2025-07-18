@@ -4,7 +4,6 @@ Usage:
 python3 gen_model_answer.py --model-path lmsys/fastchat-t5-3b-v1.0 --model-id fastchat-t5-3b-v1.0
 """
 import argparse
-import torch
 import json
 import os
 script_dir = os.path.dirname(__file__)
@@ -19,19 +18,32 @@ import shortuuid
 from fastchat.llm_judge.common import load_questions
 from tqdm import tqdm
 
-from model.ea_model import EaModel
-from model.kv_cache import initialize_past_key_values
-from model.utils import *
+from HASS.model.ea_model import EaModel
+from HASS.model.kv_cache import initialize_past_key_values
+from HASS.model.utils import *
+
 
 import random
+import torch
 import numpy as np
 
-from collapse_collector import CollapseCollector
-from svd_collapse_analyzer import SVDCollapseAnalyzer
+from HASS.evaluation.collapse_collector import CollapseCollector
+from HASS.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
 
-import logging
+# LongProc 데이터 로더 임포트 
+try: 
+    from HASS.HELMET.longproc_addon.longproc.longproc.longproc_data import load_longproc_data 
+except ImportError: 
+    print("LongProc data module import failed: ")
+    exit(1)
+
+import logging 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 스크립트 경로 설정 
+script_dir = os.path.dirname(__file__)
+parent_dir = os.path.dirname(script_dir)
 
 
 def setup_seed(seed):
@@ -42,109 +54,48 @@ def setup_seed(seed):
      torch.backends.cudnn.deterministic = True
 
 
-# def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None, max_steps=512):
-#     stop_token_ids = [
-#         tokenizer.eos_token_id,
-#         tokenizer.convert_tokens_to_ids("<|eot_id|>")
-#     ]
-#     assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
-#     # Avoid modifying the input_ids in-place
-#     input_ids = input_ids.clone()
-#     model.ea_layer.reset_kv()
+def load_benchmark_data(bench_name: str, data_path, question_begin, question_end): 
+    """
+    벤치마크 이름에 따라 적절한 데이터 로더를 호출하고, 
+    'get_model_answers'가 사용할 수 있는 표준 형식으로 데이터를 반환한다. 
+    """ 
+    if bench_name.startswith('longproc'): 
+        task_name = bench_name.split(':')[1]
+        logger.info(f"LongProc 데이터셋 로딩 중: {task_name} from {data_path}")
 
-#     if hasattr(model, "tree_choices") and model.tree_choices == tree_choices:
-#         tree_buffers = model.tree_buffers
-#     else:
-#         tree_buffers = generate_tree_buffers(
-#             tree_choices, device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
-#         )
-#         tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
-#             model.base_model.lm_head.weight.device)
-#     model.tree_buffers = tree_buffers
-#     model.tree_choices = tree_choices
+        # LongProc 데이터 로더 호출 (평가 함수는 사용하지 않음)
+        task_data, _ = load_longproc_data(dataset_name=task_name, path=data_path)
 
-#     # Initialize the past key and value states
-#     if hasattr(model, "past_key_values"):
-#         past_key_values = model.past_key_values
-#         past_key_values_data = model.past_key_values_data
-#         current_length_data = model.current_length_data
-#         # Reset the past key and value states
-#         current_length_data.zero_()
-#     else:
-#         (
-#             past_key_values,
-#             past_key_values_data,
-#             current_length_data,
-#         ) = initialize_past_key_values(model.base_model)
-#         model.past_key_values = past_key_values
-#         model.past_key_values_data = past_key_values_data
-#         model.current_length_data = current_length_data
+        # 표준 형식으로 변환 
+        questions = [] 
+        for i, item in enumerate(task_data): 
+            questions.append({
+                "question_id": f"{task_name}_{i}",
+                # LongProc은 보통 단일 턴으로 구성
+                "turns": [item["input_prompt"]],
+            })
+        
+        # question_begin/end 인덱싱 적용 
+        if question_begin is not None and question_end is not None: 
+            return questions[question_begin:question_end]
+    
+        return questions
 
-#     input_len = input_ids.shape[1]
-#     reset_tree_mode(model)
-#     tree_logits, logits, hidden_state, sample_token = initialize_tree(
-#         input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
-#     )
-#     new_token = 0
+    else:
+        raise ValueError(f"지원하지 않는 벤치마크 이름입니다: {bench_name}")
 
-#     for idx in range(max_steps):
-#         candidates, cart_candidates_prob, tree_candidates = generate_candidates(
-#             tree_logits,
-#             tree_buffers["tree_indices"],
-#             tree_buffers["retrieve_indices"],
-#             sample_token,
-#             logits_processor
-#         )
-#         logits, hidden_state_new, outputs = tree_decoding(
-#             model,
-#             tree_candidates,
-#             past_key_values,
-#             tree_buffers["tree_position_ids"],
-#             input_ids,
-#             tree_buffers["retrieve_indices_head"],
-#         )
-#         best_candidate, accept_length, sample_p = evaluate_posterior(
-#             logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
-#             tree_candidates, tree_buffers["b_indices"]
-#         )
-#         input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
-#             input_ids,
-#             candidates,
-#             best_candidate,
-#             accept_length,
-#             tree_buffers["retrieve_indices"],
-#             logits_processor,
-#             logits,
-#             tree_logits,
-#             new_token,
-#             past_key_values_data,
-#             current_length_data,
-#             model,
-#             hidden_state,
-#             hidden_state_new,
-#             sample_p
-#         )
-
-#         if stop_token_ids[0] in input_ids[0, input_len:].tolist():
-#             break
-#         if stop_token_ids[1] in input_ids[0, input_len:].tolist():
-#             break
-#         if new_token > 1024:
-#             break
-#         if input_ids.shape[1] > 1960:
-#             break
-#     return input_ids, new_token, idx
 
 
 def run_eval(
         base_model_path,
         ea_model_path,
         model_id,
-        question_file,
+        bench_name,
+        data_path, # LongProc 데이터 폴더 경로
         question_begin,
         question_end,
         answer_file,
-        collapse_file,  # collapse_file 파라미터 추가
+        collapse_file,
         max_new_token,
         num_choices,
         num_gpus_per_model,
@@ -153,21 +104,13 @@ def run_eval(
         temperature,
         args
 ):
-    questions = load_questions(question_file, question_begin, question_end)
-    # random shuffle the questions to balance the loading
-    # random.shuffle(questions)
-    shuffled_ids = [q["question_id"] for q in questions]
-    # with open(f"data/{args.bench_name}/model_ids/{args.model_id}.shuffled_ids", "w") as fout:
-    #     json.dump(shuffled_ids, fout)
+    questions = load_benchmark_data(bench_name, data_path, question_begin, question_end)
 
-    # Split the question file into `num_gpus` files
     assert num_gpus_total % num_gpus_per_model == 0
     use_ray = num_gpus_total // num_gpus_per_model > 1
 
     if use_ray:
-        get_answers_func = ray.remote(num_gpus=num_gpus_per_model)(
-            get_model_answers
-        ).remote
+        get_answers_func = ray.remote(num_gpus=num_gpus_per_model)(get_model_answers).remote
     else:
         get_answers_func = get_model_answers
 
@@ -181,7 +124,7 @@ def run_eval(
                 model_id,
                 questions[i: i + chunk_size],
                 answer_file,
-                collapse_file,  # collapse_file 파라미터 추가
+                collapse_file,
                 max_new_token,
                 num_choices,
                 num_gpus_per_model,
@@ -202,7 +145,7 @@ def get_model_answers(
         model_id,
         questions,
         answer_file,
-        collapse_file, # collapse 결과를 저장할 파일 경로 인자 추가
+        collapse_file,
         max_new_token,
         num_choices,
         num_gpus_per_model,
@@ -218,10 +161,8 @@ def get_model_answers(
         total_token=args.total_token,
         depth=args.depth,
         top_k=args.top_k,
-        threshold=args.threshold,
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
-        # load_in_8bit=True,
         device_map="auto"
     )
 
@@ -238,17 +179,14 @@ def get_model_answers(
     cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
     print('CUDA VISIBLE DEVICES:', cuda_visible_devices)
 
-    question = questions[0]
-
-    # 분석을 위한 Collector와 Analyzer 초기화
     collector = CollapseCollector()
     analyzer = SVDCollapseAnalyzer(collector)
-
-    # 모든 턴의 분석 결과를 저장할 리스트
     all_turn_collapse_metrics = []
 
-    # warmup
-    for _ in range(3):
+    question = questions[0]
+
+    # LongProc 벤치마크에서는 Warmup 짧게 수행
+    for _ in range(1):
         torch.manual_seed(0)
 
         messages = [
@@ -276,11 +214,12 @@ def get_model_answers(
             torch.cuda.synchronize()
             start_time = time.time()
 
-            output_ids, new_token, idx = model.naivegenerate(
+            output_ids, new_token, idx, _ = model.eagenerate(
                 torch.as_tensor(input_ids).cuda(),
                 temperature=temperature,
                 log=True,
                 is_llama3=True,
+                hidden_state_collector=collector,
             )
             torch.cuda.synchronize()
             total_time = time.time() - start_time
@@ -327,20 +266,19 @@ def get_model_answers(
             })
     print('Warmup done')
 
-
     for question in tqdm(questions):
-
         choices = []
         for i in range(num_choices):
             torch.manual_seed(i)
             messages = [
                 {"role": "system",
-                 "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+                "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
             ]
             turns = []
             idxs = []
             new_tokens = []
             wall_time = []
+            accept_length_lists = []
             # [수정] 샘플 단위로 collector clear
             collector.clear()
             for j in range(len(question["turns"])):
@@ -359,7 +297,7 @@ def get_model_answers(
                 torch.cuda.synchronize()
                 start_time = time.time()
 
-                output_ids, new_token, idx = model.naivegenerate(
+                output_ids, new_token, idx, accept_length_list = model.eagenerate(
                     torch.as_tensor(input_ids).cuda(),
                     temperature=temperature,
                     log=True,
@@ -399,20 +337,24 @@ def get_model_answers(
                 idxs.append(int(idx))
                 new_tokens.append(int(new_token))
                 wall_time.append(total_time)
+                accept_length_lists += accept_length_list
                 messages.append({
                     "role": "assistant",
                     "content": output
                 })
+                # [DEBUG] 턴별 피처 수집/생성 토큰 수 확인
+                collected_features = len(collector.get_hidden_states_by_state('speculated'))
+                print(f"[DEBUG] question_id={question['question_id']}, turn={j+1}, new_token={new_token}, collected_features={collected_features}")
             # torch.cuda.empty_cache()
-            choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time})
+            choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time, "accept_length": accept_length_lists})
 
         # [수정] 샘플 전체에 대해 collapse metric 계산
-        all_features = collector.get_hidden_states_by_state('baseline_accepted')
-        print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}")
+        all_features = collector.get_hidden_states_by_state('speculated')
+        print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}, total_generated_tokens={sum(new_tokens)}")
         if len(all_features) > 0:
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
-
+            
             metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=128)
             
             print(f"[DEBUG] sample metrics={metrics}")
@@ -431,35 +373,35 @@ def get_model_answers(
             }
             fout.write(json.dumps(ans_json) + "\n")
 
-    if collapse_file:
-        summary = {}
+        if collapse_file:
+            summary = {}
+            # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
+            # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
+            entropies_by_chunk_idx = {} 
 
-        # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
-        # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
-        entropies_by_chunk_idx = {} 
+            for turn_metrics in all_turn_collapse_metrics: 
+                if 'fixed_chunk_svd_entropies' in turn_metrics: 
+                    # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
+                    for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
+                        entropies_by_chunk_idx[i].append(entropy)
+            
+            # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 
+            for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()): 
+                avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
+                summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None 
 
-        for turn_metrics in all_turn_collapse_metrics: 
-            if 'fixed_chunk_svd_entropies' in turn_metrics: 
-                # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
-                for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
-                    entropies_by_chunk_idx[i].append(entropy)
-        
-        # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 
-        for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()): 
-            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
-            summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None 
+            summary['total_analyzezd_smaples'] = len(all_turn_collapse_metrics)
 
-        summary['total_analyzezd_smaples'] = len(all_turn_collapse_metrics)
+            report = {
+                'per_sample_metrics': all_turn_collapse_metrics, 
+                'summary': summary
+            }
 
-        report = {
-            'per_sample_metrics': all_turn_collapse_metrics, 
-            'summary': summary
-        }
-        # collapse_file 저장 전 디렉토리 생성
-        os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
-        with open(collapse_file, "w") as fout:
-            json.dump(report, fout, indent=2)
-        logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
+            # collapse_file 저장 전 디렉토리 생성
+            os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
+            with open(collapse_file, "w") as fout:
+                json.dump(report, fout, indent=2)
+            logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
 
 
 def reorg_answer_file(answer_file):
@@ -478,18 +420,25 @@ def reorg_answer_file(answer_file):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
+    parser.add_argument("--base-model-path", type=str, default="/home/lyh/weights/hf/llama2chat/70B/",
+                        help="1")
+
     parser.add_argument(
         "--ea-model-path",
         type=str,
         default="down_checkpoints/LC70B",
         help="The path to the weights. This can be a local folder or a Hugging Face repo ID.",
     )
-    parser.add_argument("--base-model-path", type=str, default="/home/lyh/weights/hf/llama2chat/70B/",
-                        help="1")
+
     parser.add_argument(
         "--load-in-8bit", action="store_false", help="Use 8-bit quantization"
     )
+
     parser.add_argument("--model-id", type=str, default="llama38b2_40")
+
+    parser.add_argument("--data-path", type=str, default="data", help="LongProc 또는 다른 데이터셋의 폴더 경로")
+
     parser.add_argument(
         "--bench-name",
         type=str,
@@ -514,7 +463,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--total-token",
         type=int,
-        default=63,
+        default=60,
         help="The maximum number of new generated tokens.",
     )
     parser.add_argument(
@@ -526,15 +475,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--top-k",
         type=int,
-        default=8,
+        default=10,
         help="The maximum number of new generated tokens.",
     )
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.1,
-        help="The maximum number of new generated tokens.",
-    )
+
     parser.add_argument(
         "--num-choices",
         type=int,
@@ -582,7 +526,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-
     setup_seed(args.seed)
 
     args.model_id = args.model_id + "-temperature-" + str(args.temperature)
@@ -610,11 +553,12 @@ if __name__ == "__main__":
         args.base_model_path,
         args.ea_model_path,
         args.model_id,
-        question_file,
+        args.bench_name,
+        args.data_path,
         args.question_begin,
         args.question_end,
-        answer_file,
-        collapse_file,  # collapse_file 파라미터 추가
+        args.answer_file,
+        args.collapse_file,  # collapse_file 파라미터 추가
         args.max_new_token,
         args.num_choices,
         args.num_gpus_per_model,

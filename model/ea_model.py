@@ -399,28 +399,12 @@ class EaModel(nn.Module):
         for idx in range(max_length):
             if logits_processor is not None:
                 logits = outputs.logits[:, -1]
-                logits = logits_processor(input_ids, logits)
+                logits = logits_processor(None, logits)
                 probabilities = torch.nn.functional.softmax(logits, dim=-1)
                 input_id = torch.multinomial(probabilities, 1)
             else:
                 input_id = outputs.logits[:, -1:].argmax(dim=-1)
-            
-            if hidden_state_collector:
-                if outputs.hidden_states is not None and len(outputs.hidden_states) > 0:
-                    penultimate_feature = outputs.hidden_states[-1][:, -1:, :]
-                    hidden_state_collector.add(
-                        state='baseline_accepted',
-                        hidden_state=penultimate_feature
-                    )
-                else:
-                    print(f"Warning: outputs.hidden_states is None or empty at step {idx}. Skipping hidden state collection.")
-                    # Fallback: use the last hidden state from the model output
-                    if hasattr(outputs, 'last_hidden_state'):
-                        penultimate_feature = outputs.last_hidden_state[:, -1:, :]
-                        hidden_state_collector.add(
-                            state='baseline_accepted',
-                            hidden_state=penultimate_feature
-                        )
+        
             
             outputs = self.base_model(input_id, use_cache=True, past_key_values=past_key_values, output_hidden_states=True)
             input_ids = torch.cat([input_ids, input_id], dim=-1)
@@ -436,6 +420,17 @@ class EaModel(nn.Module):
                 break
             if input_ids.shape[1] > max_length:
                 break
+
+            if hidden_state_collector:
+                if outputs.hidden_states is not None and len(outputs.hidden_states) > 0:
+                    penultimate_feature = outputs.hidden_states[-1][:, -1:, :]
+                    hidden_state_collector.add(
+                        state='baseline_accepted',
+                        hidden_state=penultimate_feature
+                    )
+                else:
+                    print(f"[DEBUG][WARN] outputs.hidden_states is None or empty at step {idx}. Skipping hidden state collection.")
+
         if not log:
             return input_ids
         else:
