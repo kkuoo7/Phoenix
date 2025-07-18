@@ -433,7 +433,6 @@ def get_model_answers(
 
     if collapse_file:
         summary = {}
-
         # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
         # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
         entropies_by_chunk_idx = {} 
