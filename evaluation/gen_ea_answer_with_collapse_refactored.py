@@ -19,16 +19,16 @@ import shortuuid
 from fastchat.llm_judge.common import load_questions
 from tqdm import tqdm
 
-from model.ea_model import EaModel
-from model.kv_cache import initialize_past_key_values
-from model.utils import *
+from Phoenix.model.ea_model import EaModel
+from Phoenix.model.kv_cache import initialize_past_key_values
+from Phoenix.model.utils import *
 
 
 import random
 import numpy as np
 
-from HASS.evaluation.collapse_collector import CollapseCollector
-from HASS.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
+from Phoenix.evaluation.collapse_collector import CollapseCollector
+from Phoenix.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -180,6 +180,7 @@ def get_model_answers(
 
             output_ids, new_token, idx, _ = model.eagenerate(
                 torch.as_tensor(input_ids).cuda(),
+                max_new_tokens=max_new_token,
                 temperature=temperature,
                 log=True,
                 is_llama3=True,
@@ -264,6 +265,7 @@ def get_model_answers(
 
                 output_ids, new_token, idx, accept_length_list = model.eagenerate(
                     torch.as_tensor(input_ids).cuda(),
+                    max_new_tokens=max_new_token,
                     temperature=temperature,
                     log=True,
                     is_llama3=True,
@@ -320,7 +322,7 @@ def get_model_answers(
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
             
-            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=128)
+            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=64)
             
             print(f"[DEBUG] sample metrics={metrics}")
             metrics['question_id'] = question['question_id']

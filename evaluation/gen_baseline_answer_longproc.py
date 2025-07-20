@@ -18,21 +18,21 @@ import shortuuid
 from fastchat.llm_judge.common import load_questions
 from tqdm import tqdm
 
-from HASS.model.ea_model import EaModel
-from HASS.model.kv_cache import initialize_past_key_values
-from HASS.model.utils import *
+from Phoenix.model.ea_model import EaModel
+from Phoenix.model.kv_cache import initialize_past_key_values
+from Phoenix.model.utils import *
 
 
 import random
 import torch
 import numpy as np
 
-from HASS.evaluation.collapse_collector import CollapseCollector
-from HASS.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
+from Phoenix.evaluation.collapse_collector import CollapseCollector
+from Phoenix.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
 
 # LongProc 데이터 로더 임포트 
 try: 
-    from HASS.HELMET.longproc_addon.longproc.longproc.longproc_data import load_longproc_data 
+    from Phoenix.HELMET.longproc_addon.longproc.longproc.longproc_data import load_longproc_data 
 except ImportError: 
     print("LongProc data module import failed: ")
     exit(1)
@@ -163,7 +163,8 @@ def get_model_answers(
         top_k=args.top_k,
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
-        device_map="auto"
+        device_map="auto",
+        attn_implementation="eager",
     )
 
     tokenizer = model.get_tokenizer()
@@ -183,87 +184,84 @@ def get_model_answers(
     analyzer = SVDCollapseAnalyzer(collector)
     all_turn_collapse_metrics = []
 
-    question = questions[0]
-
     # LongProc 벤치마크에서는 Warmup 짧게 수행
     for _ in range(1):
         torch.manual_seed(0)
 
         messages = [
-            {"role": "system",
-             "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+            {"role": "system", "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
         ]
+
         turns = []
         idxs = []
         new_tokens = []
         wall_time = []
-        for j in range(len(question["turns"])):
-            qs = question["turns"][j]
-            messages.append({
-                "role": "user",
-                "content": qs
-            })
-            prompt = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            input_ids = tokenizer([prompt],add_special_tokens=False,).input_ids
 
-            # try:
-            torch.cuda.synchronize()
-            start_time = time.time()
+        user_content = questions["turns"][0]
+        messages.append({"role": "user", "content": user_content})
 
-            output_ids, new_token, idx, _ = model.eagenerate(
-                torch.as_tensor(input_ids).cuda(),
-                temperature=temperature,
-                log=True,
-                is_llama3=True,
-                hidden_state_collector=collector,
-            )
-            torch.cuda.synchronize()
-            total_time = time.time() - start_time
-            output_ids = output_ids[0][len(input_ids[0]):]
-            # be consistent with the template's stop_token_ids
-            stop_token_ids = [
-                tokenizer.eos_token_id,
-                tokenizer.convert_tokens_to_ids("<|eot_id|>")
+        prompt = tokenizer.apply_chat_template(
+            messages, 
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        input_ids = tokenizer([prompt], add_special_tokens=False).input_ids 
+
+        # try:
+        torch.cuda.synchronize()
+        start_time = time.time()
+
+        output_ids, new_token, idx = model.naivegenerate(
+            torch.as_tensor(input_ids).cuda(),
+            max_new_tokens=max_new_token,
+            temperature=temperature,
+            log=True,
+            is_llama3=True,
+            hidden_state_collector=collector,
+        )
+        torch.cuda.synchronize()
+        total_time = time.time() - start_time
+        output_ids = output_ids[0][len(input_ids[0]):]
+        # be consistent with the template's stop_token_ids
+        stop_token_ids = [
+            tokenizer.eos_token_id,
+            tokenizer.convert_tokens_to_ids("<|eot_id|>")
+        ]
+
+        if stop_token_ids:
+            stop_token_ids_index = [
+                i
+                for i, id in enumerate(output_ids)
+                if id in stop_token_ids
             ]
+            if len(stop_token_ids_index) > 0:
+                output_ids = output_ids[: stop_token_ids_index[0]]
 
-            if stop_token_ids:
-                stop_token_ids_index = [
-                    i
-                    for i, id in enumerate(output_ids)
-                    if id in stop_token_ids
-                ]
-                if len(stop_token_ids_index) > 0:
-                    output_ids = output_ids[: stop_token_ids_index[0]]
+        output = tokenizer.decode(
+            output_ids,
+            spaces_between_special_tokens=False,
+        )
+        # stop_str = "</s>"
+        # if stop_str and output.find(stop_str) > 0:
+        #     output = output[: output.find(stop_str)]
+        for special_token in tokenizer.special_tokens_map.values():
+            if isinstance(special_token, list):
+                for special_tok in special_token:
+                    output = output.replace(special_tok, "")
+            else:
+                output = output.replace(special_token, "")
+        output = output.strip()
 
-            output = tokenizer.decode(
-                output_ids,
-                spaces_between_special_tokens=False,
-            )
-            # stop_str = "</s>"
-            # if stop_str and output.find(stop_str) > 0:
-            #     output = output[: output.find(stop_str)]
-            for special_token in tokenizer.special_tokens_map.values():
-                if isinstance(special_token, list):
-                    for special_tok in special_token:
-                        output = output.replace(special_tok, "")
-                else:
-                    output = output.replace(special_token, "")
-            output = output.strip()
+        turns.append(output)
+        idxs.append(int(idx))
+        new_tokens.append(int(new_token))
+        wall_time.append(total_time)
+        messages.append({
+            "role": "assistant",
+            "content": output
+        })
 
-
-
-            turns.append(output)
-            idxs.append(int(idx))
-            new_tokens.append(int(new_token))
-            wall_time.append(total_time)
-            messages.append({
-                "role": "assistant",
-                "content": output
-            })
     print('Warmup done')
 
     for question in tqdm(questions):
@@ -281,19 +279,18 @@ def get_model_answers(
 
             # [수정] 샘플 단위로 collector clear
             collector.clear()
-            for j in range(len(question["turns"])):
-                qs = question["turns"][j]
-                messages.append({
-                    "role": "user",
-                    "content": qs
-                })
+            for j, qs in enumerate(question["turns"]):
+
+                messages.append({"role": "user", "content": qs})
+
                 prompt = tokenizer.apply_chat_template(
                     messages,
                     tokenize=False,
-                    add_generation_prompt=True,
+                    add_generation_prompt=True
                 )
+
                 input_ids = tokenizer([prompt], add_special_tokens=False, ).input_ids
-                prompt_len = len(input_ids[0])
+
                 torch.cuda.synchronize()
                 start_time = time.time()
 
@@ -344,13 +341,13 @@ def get_model_answers(
                     "content": output
                 })
                 # [DEBUG] 턴별 피처 수집/생성 토큰 수 확인
-                collected_features = len(collector.get_hidden_states_by_state('speculated'))
+                collected_features = len(collector.get_hidden_states_by_state('baseline_accepted'))
                 print(f"[DEBUG] question_id={question['question_id']}, turn={j+1}, new_token={new_token}, collected_features={collected_features}")
             # torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time})
 
         # [수정] 샘플 전체에 대해 collapse metric 계산
-        all_features = collector.get_hidden_states_by_state('speculated')
+        all_features = collector.get_hidden_states_by_state('baseline_accepted')
         print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}, total_generated_tokens={sum(new_tokens)}")
         if len(all_features) > 0:
             all_features = torch.cat(all_features, dim=0)

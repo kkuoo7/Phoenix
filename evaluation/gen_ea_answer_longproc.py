@@ -18,21 +18,21 @@ import shortuuid
 from fastchat.llm_judge.common import load_questions
 from tqdm import tqdm
 
-from HASS.model.ea_model import EaModel
-from HASS.model.kv_cache import initialize_past_key_values
-from HASS.model.utils import *
+from Phoenix.model.ea_model import EaModel
+from Phoenix.model.kv_cache import initialize_past_key_values
+from Phoenix.model.utils import *
 
 
 import random
 import torch
 import numpy as np
 
-from HASS.evaluation.collapse_collector import CollapseCollector
-from HASS.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
+from Phoenix.evaluation.collapse_collector import CollapseCollector
+from Phoenix.evaluation.svd_collapse_analyzer import SVDCollapseAnalyzer
 
 # LongProc 데이터 로더 임포트 
 try: 
-    from HASS.HELMET.longproc_addon.longproc.longproc.longproc_data import load_longproc_data 
+    from Phoenix.HELMET.longproc_addon.longproc.longproc.longproc_data import load_longproc_data 
 except ImportError: 
     print("LongProc data module import failed: ")
     exit(1)
@@ -107,7 +107,7 @@ def run_eval(
     questions = load_benchmark_data(bench_name, data_path, question_begin, question_end)
 
     assert num_gpus_total % num_gpus_per_model == 0
-    use_ray = num_gpus_total // num_gpus_per_model > 1
+    use_ray = False
 
     if use_ray:
         get_answers_func = ray.remote(num_gpus=num_gpus_per_model)(get_model_answers).remote
@@ -216,6 +216,7 @@ def get_model_answers(
 
             output_ids, new_token, idx, _ = model.eagenerate(
                 torch.as_tensor(input_ids).cuda(),
+                max_new_tokens=max_new_token,
                 temperature=temperature,
                 log=True,
                 is_llama3=True,
@@ -299,6 +300,7 @@ def get_model_answers(
 
                 output_ids, new_token, idx, accept_length_list = model.eagenerate(
                     torch.as_tensor(input_ids).cuda(),
+                    max_new_tokens=max_new_token,
                     temperature=temperature,
                     log=True,
                     is_llama3=True,
@@ -383,6 +385,8 @@ def get_model_answers(
                 if 'fixed_chunk_svd_entropies' in turn_metrics: 
                     # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
                     for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
+                        if i not in entropies_by_chunk_idx:
+                            entropies_by_chunk_idx[i] = []
                         entropies_by_chunk_idx[i].append(entropy)
             
             # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 

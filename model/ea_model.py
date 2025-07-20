@@ -21,7 +21,7 @@ from .configs import EConfig
 
 from typing import Optional
 from .utils import *
-from HASS.evaluation.collapse_collector import CollapseCollector
+from Phoenix.evaluation.collapse_collector import CollapseCollector
 
 
 
@@ -213,10 +213,10 @@ class EaModel(nn.Module):
     def eagenerate(
             self,
             input_ids,
+            max_new_tokens,
             temperature=0.0,
             top_p=0.0,
             top_k=0.0,
-            max_new_tokens=512,
             max_length=2048,
             log=False,
             is_llama3=False,
@@ -348,10 +348,10 @@ class EaModel(nn.Module):
     def naivegenerate(
             self,
             input_ids,
+            max_new_tokens,
             temperature=0.0,
             top_p=0.0,
             top_k=0.0,
-            max_new_tokens=512,
             max_length=2048,
             log=False,
             is_llama3=False,

@@ -278,6 +278,7 @@ def get_model_answers(
 
             output_ids, new_token, idx = model.naivegenerate(
                 torch.as_tensor(input_ids).cuda(),
+                max_new_tokens=max_new_token,
                 temperature=temperature,
                 log=True,
                 is_llama3=True,
@@ -361,6 +362,7 @@ def get_model_answers(
 
                 output_ids, new_token, idx = model.naivegenerate(
                     torch.as_tensor(input_ids).cuda(),
+                    max_new_tokens=max_new_token,
                     temperature=temperature,
                     log=True,
                     is_llama3=True,
@@ -409,11 +411,16 @@ def get_model_answers(
         # [수정] 샘플 전체에 대해 collapse metric 계산
         all_features = collector.get_hidden_states_by_state('baseline_accepted')
         print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}")
+        
+        # [DEBUG] 수집된 모든 상태 확인
+        collected_states = collector.get_collected_states()
+        print(f"[DEBUG] collected states: {collected_states}")
+        
         if len(all_features) > 0:
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
 
-            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=128)
+            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=64)
             
             print(f"[DEBUG] sample metrics={metrics}")
             metrics['question_id'] = question['question_id']
