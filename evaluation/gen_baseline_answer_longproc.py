@@ -102,6 +102,7 @@ def run_eval(
         num_gpus_total,
         max_gpu_memory,
         temperature,
+        model_max_length,
         args
 ):
     questions = load_benchmark_data(bench_name, data_path, question_begin, question_end)
@@ -130,6 +131,7 @@ def run_eval(
                 num_gpus_per_model,
                 max_gpu_memory,
                 temperature,
+                model_max_length,
                 args
             )
         )
@@ -151,6 +153,7 @@ def get_model_answers(
         num_gpus_per_model,
         max_gpu_memory,
         temperature,
+        model_max_length,
         args
 ):
     # temperature = 0.0
@@ -184,12 +187,19 @@ def get_model_answers(
     analyzer = SVDCollapseAnalyzer(collector)
     all_turn_collapse_metrics = []
 
+    question = questions[0]
+
     # LongProc 벤치마크에서는 Warmup 짧게 수행
     for _ in range(1):
         torch.manual_seed(0)
 
+        # messages = [
+        #     {"role": "system", "content": "You are a highly specialized agent tasked with executing complex, multi-step procedures based on a long context. Your primary goal is to follow the given instructions precisely and generate a complete, structured, long-form output. Key directives: 1.  **Follow Instructions Meticulously**: Adhere strictly to every step and constraint outlined in the user's request. Do not summarize or omit any required steps. 2.  **Synthesize All Information**: Your response must be based on a thorough synthesis of all relevant information dispersed throughout the provided context. 3.  **Generate a Complete and Structured Output**: Produce a long-form, well-structured response in the exact format specified. Ensure the output is fully completed before you stop. Do not end prematurely. 4.  **Reason Step-by-Step**: Think through the procedure logically to ensure accuracy and coherence from beginning to end."},
+        # ]
+
         messages = [
-            {"role": "system", "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+            {"role": "system",
+             "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
         ]
 
         turns = []
@@ -197,7 +207,7 @@ def get_model_answers(
         new_tokens = []
         wall_time = []
 
-        user_content = questions["turns"][0]
+        user_content = question["turns"][0]
         messages.append({"role": "user", "content": user_content})
 
         prompt = tokenizer.apply_chat_template(
@@ -216,6 +226,7 @@ def get_model_answers(
             torch.as_tensor(input_ids).cuda(),
             max_new_tokens=max_new_token,
             temperature=temperature,
+            max_length=model_max_length,
             log=True,
             is_llama3=True,
             hidden_state_collector=collector,
@@ -268,10 +279,16 @@ def get_model_answers(
         choices = []
         for i in range(num_choices):
             torch.manual_seed(i)
+
+            # messages = [
+            #     {"role": "system",
+            #     "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+            # ]
+
             messages = [
-                {"role": "system",
-                "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+                {"role": "system", "content": "You are a highly specialized agent tasked with executing complex, multi-step procedures based on a long context. Your primary goal is to follow the given instructions precisely and generate a complete, structured, long-form output. Key directives: 1.  **Follow Instructions Meticulously**: Adhere strictly to every step and constraint outlined in the user's request. Do not summarize or omit any required steps. 2.  **Synthesize All Information**: Your response must be based on a thorough synthesis of all relevant information dispersed throughout the provided context. 3.  **Generate a Complete and Structured Output**: Produce a long-form, well-structured response in the exact format specified. Ensure the output is fully completed before you stop. Do not end prematurely. 4.  **Reason Step-by-Step**: Think through the procedure logically to ensure accuracy and coherence from beginning to end."},
             ]
+
             turns = []
             idxs = []
             new_tokens = []
@@ -296,7 +313,9 @@ def get_model_answers(
 
                 output_ids, new_token, idx = model.naivegenerate(
                     torch.as_tensor(input_ids).cuda(),
+                    max_new_tokens=max_new_token,
                     temperature=temperature,
+                    max_length=model_max_length,
                     log=True,
                     is_llama3=True,
                     hidden_state_collector=collector # collector에 계속 누적
@@ -349,6 +368,7 @@ def get_model_answers(
         # [수정] 샘플 전체에 대해 collapse metric 계산
         all_features = collector.get_hidden_states_by_state('baseline_accepted')
         print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}, total_generated_tokens={sum(new_tokens)}")
+        
         if len(all_features) > 0:
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
@@ -371,31 +391,72 @@ def get_model_answers(
             }
             fout.write(json.dumps(ans_json) + "\n")
 
-        if collapse_file:
+    if collapse_file and all_turn_collapse_metrics:
             summary = {}
-            # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
-            # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
-            entropies_by_chunk_idx = {} 
-
-            for turn_metrics in all_turn_collapse_metrics: 
-                if 'fixed_chunk_svd_entropies' in turn_metrics: 
-                    # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
-                    for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
-                        entropies_by_chunk_idx[i].append(entropy)
             
-            # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 
-            for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()): 
-                avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
-                summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None 
+            # --- 1. 모든 샘플로부터 통계치 수집 ---
+            entropies_by_chunk_idx = {}
+            all_avg_entropies = []
+            all_cv_entropies = []
+            all_slope_entropies = []
 
-            summary['total_analyzezd_smaples'] = len(all_turn_collapse_metrics)
+            for metrics in all_turn_collapse_metrics:
+                # 청크별 엔트로피 수집
+                if 'fixed_chunk_svd_entropies' in metrics:
+                    for i, entropy in enumerate(metrics['fixed_chunk_svd_entropies']):
+                        if entropy is not None:
+                            if i not in entropies_by_chunk_idx:
+                                entropies_by_chunk_idx[i] = []
+                            entropies_by_chunk_idx[i].append(entropy)
 
+                # 샘플별 종합 통계치 수집
+                if metrics.get('avg_svd_entropy') is not None:
+                    all_avg_entropies.append(metrics['avg_svd_entropy'])
+                if metrics.get('cv_svd_entropy') is not None:
+                    all_cv_entropies.append(metrics['cv_svd_entropy'])
+                if metrics.get('slope_svd_entropy') is not None:
+                    all_slope_entropies.append(metrics['slope_svd_entropy'])
+
+            # --- 2. 종합 통계치 계산 ---
+            summary['total_analyzed_samples'] = len(all_turn_collapse_metrics)
+            summary['overall_avg_svd_entropy'] = float(np.mean(all_avg_entropies)) if all_avg_entropies else None
+            summary['overall_avg_cv_svd_entropy'] = float(np.mean(all_cv_entropies)) if all_cv_entropies else None
+            summary['overall_avg_slope_svd_entropy'] = float(np.mean(all_slope_entropies)) if all_slope_entropies else None
+
+            # 청크별 평균 엔트로피 계산
+            chunk_summary = {}
+            for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()):
+                avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None
+                chunk_summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None
+            
+            summary.update(chunk_summary)
+
+            # --- 3. 터미널에 상세 리포트 출력 ---
+            print("\n" + "="*60)
+            print(" " * 15 + "Collapse Analysis Summary")
+            print("="*60)
+            print(f"Total Analyzed Samples: {summary['total_analyzed_samples']}")
+            print("-" * 60)
+            print("📊 Overall Sample Statistics:")
+            print(f"  - Average SVD Entropy      : {summary['overall_avg_svd_entropy']:.4f}")
+            print(f"  - Average CV of Entropy    : {summary['overall_avg_cv_svd_entropy']:.4f}")
+            print(f"  - Average Trend Slope      : {summary['overall_avg_slope_svd_entropy']:.4f}")
+            print("-" * 60)
+            print("📈 Chunk-wise Average SVD Entropy:")
+            
+            # 청크별 엔트로피를 표 형식으로 출력
+            chunk_keys = sorted([key for key in summary.keys() if 'avg_chunk_idx' in key], key=lambda x: int(x.split('_')[3]))
+            for key in chunk_keys:
+                chunk_index = key.split('_')[3]
+                value = summary[key]
+                print(f"  - Chunk {int(chunk_index):<2}: {value:.4f}")
+            print("="*60 + "\n")
+
+            # --- 4. JSON 파일로 리포트 저장 ---
             report = {
-                'per_sample_metrics': all_turn_collapse_metrics, 
+                'per_sample_metrics': all_turn_collapse_metrics,
                 'summary': summary
             }
-
-            # collapse_file 저장 전 디렉토리 생성
             os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
             with open(collapse_file, "w") as fout:
                 json.dump(report, fout, indent=2)
@@ -458,6 +519,7 @@ if __name__ == "__main__":
         default=1024,
         help="The maximum number of new generated tokens.",
     )
+
     parser.add_argument(
         "--total-token",
         type=int,
@@ -523,6 +585,13 @@ if __name__ == "__main__":
         help="Collapse 분석 결과를 저장할 파일 경로"
     )
 
+    parser.add_argument(
+        "--model-max-length",
+        type=int,
+        default=4096,
+        help="The maximum sequence length the model can handle."
+    )   
+
     args = parser.parse_args()
     setup_seed(args.seed)
 
@@ -563,6 +632,7 @@ if __name__ == "__main__":
         args.num_gpus_total,
         args.max_gpu_memory,
         args.temperature,
+        args.model_max_length,
         args
     )
 

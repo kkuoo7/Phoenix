@@ -9,7 +9,6 @@ import json
 import os
 script_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(script_dir)
-#os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 from accelerate.utils import set_seed
 set_seed(0)
 
@@ -19,9 +18,9 @@ import shortuuid
 from fastchat.llm_judge.common import load_questions
 from tqdm import tqdm
 
-from model.ea_model import EaModel
-from model.kv_cache import initialize_past_key_values
-from model.utils import *
+from Phoenix.model.ea_model import EaModel
+from Phoenix.model.kv_cache import initialize_past_key_values
+from Phoenix.model.utils import *
 
 import random
 import numpy as np
@@ -40,100 +39,6 @@ def setup_seed(seed):
      np.random.seed(seed)
      random.seed(seed)
      torch.backends.cudnn.deterministic = True
-
-
-# def ea_forward(input_ids, model, tokenizer, tree_choices, logits_processor=None, max_steps=512):
-#     stop_token_ids = [
-#         tokenizer.eos_token_id,
-#         tokenizer.convert_tokens_to_ids("<|eot_id|>")
-#     ]
-#     assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
-#     # Avoid modifying the input_ids in-place
-#     input_ids = input_ids.clone()
-#     model.ea_layer.reset_kv()
-
-#     if hasattr(model, "tree_choices") and model.tree_choices == tree_choices:
-#         tree_buffers = model.tree_buffers
-#     else:
-#         tree_buffers = generate_tree_buffers(
-#             tree_choices, device=model.base_model.model.layers[-1].self_attn.q_proj.weight.device
-#         )
-#         tree_buffers["retrieve_indices_head"] = tree_buffers["retrieve_indices"].to(
-#             model.base_model.lm_head.weight.device)
-#     model.tree_buffers = tree_buffers
-#     model.tree_choices = tree_choices
-
-#     # Initialize the past key and value states
-#     if hasattr(model, "past_key_values"):
-#         past_key_values = model.past_key_values
-#         past_key_values_data = model.past_key_values_data
-#         current_length_data = model.current_length_data
-#         # Reset the past key and value states
-#         current_length_data.zero_()
-#     else:
-#         (
-#             past_key_values,
-#             past_key_values_data,
-#             current_length_data,
-#         ) = initialize_past_key_values(model.base_model)
-#         model.past_key_values = past_key_values
-#         model.past_key_values_data = past_key_values_data
-#         model.current_length_data = current_length_data
-
-#     input_len = input_ids.shape[1]
-#     reset_tree_mode(model)
-#     tree_logits, logits, hidden_state, sample_token = initialize_tree(
-#         input_ids, model, tree_buffers["tree_attn_mask"], past_key_values, logits_processor
-#     )
-#     new_token = 0
-
-#     for idx in range(max_steps):
-#         candidates, cart_candidates_prob, tree_candidates = generate_candidates(
-#             tree_logits,
-#             tree_buffers["tree_indices"],
-#             tree_buffers["retrieve_indices"],
-#             sample_token,
-#             logits_processor
-#         )
-#         logits, hidden_state_new, outputs = tree_decoding(
-#             model,
-#             tree_candidates,
-#             past_key_values,
-#             tree_buffers["tree_position_ids"],
-#             input_ids,
-#             tree_buffers["retrieve_indices_head"],
-#         )
-#         best_candidate, accept_length, sample_p = evaluate_posterior(
-#             logits, candidates, logits_processor, cart_candidates_prob, tree_logits[2], tree_buffers["p_indices"],
-#             tree_candidates, tree_buffers["b_indices"]
-#         )
-#         input_ids, tree_logits, new_token, hidden_state, sample_token = update_inference_inputs(
-#             input_ids,
-#             candidates,
-#             best_candidate,
-#             accept_length,
-#             tree_buffers["retrieve_indices"],
-#             logits_processor,
-#             logits,
-#             tree_logits,
-#             new_token,
-#             past_key_values_data,
-#             current_length_data,
-#             model,
-#             hidden_state,
-#             hidden_state_new,
-#             sample_p
-#         )
-
-#         if stop_token_ids[0] in input_ids[0, input_len:].tolist():
-#             break
-#         if stop_token_ids[1] in input_ids[0, input_len:].tolist():
-#             break
-#         if new_token > 1024:
-#             break
-#         if input_ids.shape[1] > 1960:
-#             break
-#     return input_ids, new_token, idx
 
 
 def run_eval(
@@ -246,6 +151,7 @@ def get_model_answers(
 
     # 모든 턴의 분석 결과를 저장할 리스트
     all_turn_collapse_metrics = []
+    all_wall_times = [] # [NEW] List to store wall times for summary
 
     # warmup
     for _ in range(3):
@@ -407,6 +313,11 @@ def get_model_answers(
                 })
             # torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time})
+        
+        # [NEW] Wall time calculation for the current sample
+        total_sample_wall_time = sum(choices[0]['wall_time'])
+        all_wall_times.append(total_sample_wall_time)
+        print(f"[DEBUG] SAMPLE_METRICS: question_id={question['question_id']}, wall_time={total_sample_wall_time:.4f}s")
 
         # [수정] 샘플 전체에 대해 collapse metric 계산
         all_features = collector.get_hidden_states_by_state('baseline_accepted')
@@ -438,34 +349,80 @@ def get_model_answers(
             }
             fout.write(json.dumps(ans_json) + "\n")
 
-    if collapse_file:
-        summary = {}
-        # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
-        # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
-        entropies_by_chunk_idx = {} 
+    if collapse_file and all_turn_collapse_metrics:
+            summary = {}
+            
+            # --- 1. 모든 샘플로부터 통계치 수집 ---
+            entropies_by_chunk_idx = {}
+            all_avg_entropies = []
+            all_cv_entropies = []
+            all_slope_entropies = []
 
-        for turn_metrics in all_turn_collapse_metrics: 
-            if 'fixed_chunk_svd_entropies' in turn_metrics: 
-                # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
-                for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
-                    entropies_by_chunk_idx[i].append(entropy)
-        
-        # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 
-        for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()): 
-            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
-            summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None 
+            for metrics in all_turn_collapse_metrics:
+                # 청크별 엔트로피 수집
+                if 'fixed_chunk_svd_entropies' in metrics:
+                    for i, entropy in enumerate(metrics['fixed_chunk_svd_entropies']):
+                        if entropy is not None:
+                            if i not in entropies_by_chunk_idx:
+                                entropies_by_chunk_idx[i] = []
+                            entropies_by_chunk_idx[i].append(entropy)
 
-        summary['total_analyzezd_smaples'] = len(all_turn_collapse_metrics)
+                # 샘플별 종합 통계치 수집
+                if metrics.get('avg_svd_entropy') is not None:
+                    all_avg_entropies.append(metrics['avg_svd_entropy'])
+                if metrics.get('cv_svd_entropy') is not None:
+                    all_cv_entropies.append(metrics['cv_svd_entropy'])
+                if metrics.get('slope_svd_entropy') is not None:
+                    all_slope_entropies.append(metrics['slope_svd_entropy'])
 
-        report = {
-            'per_sample_metrics': all_turn_collapse_metrics, 
-            'summary': summary
-        }
-        # collapse_file 저장 전 디렉토리 생성
-        os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
-        with open(collapse_file, "w") as fout:
-            json.dump(report, fout, indent=2)
-        logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
+            # --- 2. 종합 통계치 계산 ---
+            summary['total_analyzed_samples'] = len(all_turn_collapse_metrics)
+            summary['overall_avg_svd_entropy'] = float(np.mean(all_avg_entropies)) if all_avg_entropies else None
+            summary['overall_avg_cv_svd_entropy'] = float(np.mean(all_cv_entropies)) if all_cv_entropies else None
+            summary['overall_avg_slope_svd_entropy'] = float(np.mean(all_slope_entropies)) if all_slope_entropies else None
+            # [NEW] Add wall_time to summary dictionary
+            summary['overall_avg_wall_time'] = float(np.mean(all_wall_times)) if all_wall_times else None
+
+            # 청크별 평균 엔트로피 계산
+            chunk_summary = {}
+            for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()):
+                avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None
+                chunk_summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None
+            
+            summary.update(chunk_summary)
+
+            # --- 3. 터미널에 상세 리포트 출력 ---
+            print("\n" + "="*60)
+            print(" " * 15 + "Collapse Analysis Summary")
+            print("="*60)
+            print(f"Total Analyzed Samples: {summary['total_analyzed_samples']}")
+            print("-" * 60)
+            print("📊 Overall Sample Statistics:")
+            # [MODIFIED] Add wall time to the printout
+            print(f"  - Average Wall Time        : {summary.get('overall_avg_wall_time', 0):.4f}s")
+            print(f"  - Average SVD Entropy      : {summary.get('overall_avg_svd_entropy', 0):.4f}")
+            print(f"  - Average CV of Entropy    : {summary.get('overall_avg_cv_svd_entropy', 0):.4f}")
+            print(f"  - Average Trend Slope      : {summary.get('overall_avg_slope_svd_entropy', 0):.4f}")
+            print("-" * 60)
+            print("📈 Chunk-wise Average SVD Entropy:")
+            
+            # 청크별 엔트로피를 표 형식으로 출력
+            chunk_keys = sorted([key for key in summary.keys() if 'avg_chunk_idx' in key], key=lambda x: int(x.split('_')[3]))
+            for key in chunk_keys:
+                chunk_index = key.split('_')[3]
+                value = summary[key]
+                print(f"  - Chunk {int(chunk_index):<2}: {value:.4f}")
+            print("="*60 + "\n")
+
+            # --- 4. JSON 파일로 리포트 저장 ---
+            report = {
+                'per_sample_metrics': all_turn_collapse_metrics,
+                'summary': summary
+            }
+            os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
+            with open(collapse_file, "w") as fout:
+                json.dump(report, fout, indent=2)
+            logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
 
 
 def reorg_answer_file(answer_file):

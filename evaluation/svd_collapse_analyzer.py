@@ -9,7 +9,7 @@ class SVDCollapseAnalyzer:
     SVD 엔트로피 기반 청크-wise representation collapse 분석 클래스
     (공분산 행렬 기반 SVD 엔트로피 계산)
     """
-    def __init__(self, config=None): # config를 선택적으로 받도록 수정
+    def __init__(self, config=None):
         self.config = config
 
     def get_generation_features(self, features):
@@ -38,24 +38,20 @@ class SVDCollapseAnalyzer:
     def get_collapse_metrics(self, features, num_chunks=5):
         gen_features = self.get_generation_features(features)
         entropies = self.get_chunk_svd_entropies(gen_features, num_chunks=num_chunks)
-        
-        # 평균 및 CV 통계 계산 추가
         stats = self._calculate_entropy_statistics(entropies)
         
         return {
             'total_generated_tokens': gen_features.shape[0],
             'chunk_svd_entropies': entropies,
-            **stats  # 딕셔너리에 통계 결과 병합
+            **stats
         }
 
-    def get_collapse_metrics_fixed_chunk(self, features, chunk_size=64): # 기본값을 64로 수정
+    def get_collapse_metrics_fixed_chunk(self, features, chunk_size=64):
         """
         고정된 크기의 청크로 분할하여 SVD 엔트로피를 계산합니다.
         """
         gen_features = self.get_generation_features(features)
         entropies = self._get_fixed_chunk_svd_entropies(gen_features, chunk_size)
-        
-        # 평균 및 CV 통계 계산 추가
         stats = self._calculate_entropy_statistics(entropies)
         
         return {
@@ -63,7 +59,7 @@ class SVDCollapseAnalyzer:
             'chunk_size': chunk_size,
             'fixed_chunk_svd_entropies': entropies,
             'num_valid_chunks': len(entropies),
-            **stats  # 딕셔너리에 통계 결과 병합
+            **stats
         }
 
     def _get_fixed_chunk_svd_entropies(self, gen_features, chunk_size):
@@ -100,26 +96,41 @@ class SVDCollapseAnalyzer:
             logger.error(f"Failed to compute SVD entropy (covariance): {e}")
             return 0.0
 
+    def _calculate_entropy_trend_slope(self, valid_entropies: list) -> float or None:
+        """
+        엔트로피 리스트의 추세선 기울기를 계산합니다.
+        """
+        if len(valid_entropies) < 2:
+            return None # 점이 2개 미만이면 기울기를 계산할 수 없음
+        
+        chunk_indices = np.arange(len(valid_entropies))
+        # np.polyfit은 선형 회귀를 수행하고 계수(기울기, 절편)를 반환합니다.
+        # 1차 다항식(직선)이므로 deg=1을 사용합니다.
+        slope, _ = np.polyfit(chunk_indices, valid_entropies, 1)
+        return float(slope)
+
     def _calculate_entropy_statistics(self, chunk_entropies: list) -> dict:
         """
-        주어진 청크 엔트로피 리스트로부터 평균과 변동 계수(CV)를 계산합니다.
+        주어진 청크 엔트로피 리스트로부터 평균, 변동 계수(CV), 추세 기울기를 계산합니다.
         """
-        # None 값을 제외하고 유효한 엔트로피 값만 필터링
         valid_entropies = [e for e in chunk_entropies if e is not None and e > 0]
         
         if not valid_entropies:
-            return {"avg_svd_entropy": None, "cv_svd_entropy": None}
-            
-        # 평균 계산
+            return {
+                "avg_svd_entropy": None, 
+                "cv_svd_entropy": None,
+                "slope_svd_entropy": None
+            }
+        
         avg_entropy = np.mean(valid_entropies)
-        
-        # 표준편차 계산
         std_entropy = np.std(valid_entropies)
-        
-        # 변동 계수(CV) 계산 (평균이 0인 경우 방지)
         cv_entropy = (std_entropy / avg_entropy) if avg_entropy > 0 else 0.0
+        
+        # 추세 기울기 계산 함수 호출
+        slope_entropy = self._calculate_entropy_trend_slope(valid_entropies)
         
         return {
             "avg_svd_entropy": float(avg_entropy),
-            "cv_svd_entropy": float(cv_entropy)
+            "cv_svd_entropy": float(cv_entropy),
+            "slope_svd_entropy": slope_entropy
         }

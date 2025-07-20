@@ -9,7 +9,6 @@ import os
 import torch
 script_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(script_dir)
-#os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 from accelerate.utils import set_seed
 set_seed(0)
 
@@ -60,13 +59,6 @@ def run_eval(
         args
 ):
     questions = load_questions(question_file, question_begin, question_end)
-    # random shuffle the questions to balance the loading
-    # random.shuffle(questions)
-    shuffled_ids = [q["question_id"] for q in questions]
-    # with open(f"data/{args.bench_name}/model_ids/{args.model_id}.shuffled_ids", "w") as fout:
-    #     json.dump(shuffled_ids, fout)
-
-    # Split the question file into `num_gpus` files
     assert num_gpus_total % num_gpus_per_model == 0
     use_ray = num_gpus_total // num_gpus_per_model > 1
 
@@ -77,7 +69,7 @@ def run_eval(
     else:
         get_answers_func = get_model_answers
 
-    chunk_size = len(questions) // (num_gpus_total // num_gpus_per_model)  # // 2
+    chunk_size = len(questions) // (num_gpus_total // num_gpus_per_model)
     ans_handles = []
     for i in range(0, len(questions), chunk_size):
         ans_handles.append(
@@ -87,7 +79,7 @@ def run_eval(
                 model_id,
                 questions[i: i + chunk_size],
                 answer_file,
-                collapse_file,  # collapse_file 파라미터 추가
+                collapse_file,
                 max_new_token,
                 num_choices,
                 num_gpus_per_model,
@@ -108,7 +100,7 @@ def get_model_answers(
         model_id,
         questions,
         answer_file,
-        collapse_file, # collapse 결과를 저장할 파일 경로 인자 추가
+        collapse_file,
         max_new_token,
         num_choices,
         num_gpus_per_model,
@@ -116,8 +108,6 @@ def get_model_answers(
         temperature,
         args
 ):
-    # temperature = 0.0
-
     model = EaModel.from_pretrained(
         base_model_path=base_model_path,
         ea_model_path=ea_model_path,
@@ -126,7 +116,6 @@ def get_model_answers(
         top_k=args.top_k,
         torch_dtype=torch.float16,
         low_cpu_mem_usage=True,
-        # load_in_8bit=True,
         device_map="auto"
     )
 
@@ -140,158 +129,53 @@ def get_model_answers(
     model.eval()
     print('Check model training state:', model.training)
 
-    cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
-    print('CUDA VISIBLE DEVICES:', cuda_visible_devices)
-
-    question = questions[0]
-
     collector = CollapseCollector()
     analyzer = SVDCollapseAnalyzer(collector)
+    CHUNK_SIZE = 64
+
     all_turn_collapse_metrics = []
+    all_wall_times = []
+    all_avg_accept_lengths = []
+    all_acceptance_length_slopes = []
 
-    # warmup
-    for _ in range(3):
-        torch.manual_seed(0)
-
-        messages = [
-            {"role": "system",
-             "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
-        ]
-        turns = []
-        idxs = []
-        new_tokens = []
-        wall_time = []
-        for j in range(len(question["turns"])):
-            qs = question["turns"][j]
-            messages.append({
-                "role": "user",
-                "content": qs
-            })
-            prompt = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            input_ids = tokenizer([prompt],add_special_tokens=False,).input_ids
-
-            # try:
-            torch.cuda.synchronize()
-            start_time = time.time()
-
-            output_ids, new_token, idx, _ = model.eagenerate(
-                torch.as_tensor(input_ids).cuda(),
-                max_new_tokens=max_new_token,
-                temperature=temperature,
-                log=True,
-                is_llama3=True,
-                hidden_state_collector=collector,
-            )
-            torch.cuda.synchronize()
-            total_time = time.time() - start_time
-            output_ids = output_ids[0][len(input_ids[0]):]
-            # be consistent with the template's stop_token_ids
-            stop_token_ids = [
-                tokenizer.eos_token_id,
-                tokenizer.convert_tokens_to_ids("<|eot_id|>")
-            ]
-
-            if stop_token_ids:
-                stop_token_ids_index = [
-                    i
-                    for i, id in enumerate(output_ids)
-                    if id in stop_token_ids
-                ]
-                if len(stop_token_ids_index) > 0:
-                    output_ids = output_ids[: stop_token_ids_index[0]]
-
-            output = tokenizer.decode(
-                output_ids,
-                spaces_between_special_tokens=False,
-            )
-            # stop_str = "</s>"
-            # if stop_str and output.find(stop_str) > 0:
-            #     output = output[: output.find(stop_str)]
-            for special_token in tokenizer.special_tokens_map.values():
-                if isinstance(special_token, list):
-                    for special_tok in special_token:
-                        output = output.replace(special_tok, "")
-                else:
-                    output = output.replace(special_token, "")
-            output = output.strip()
-
-
-
-            turns.append(output)
-            idxs.append(int(idx))
-            new_tokens.append(int(new_token))
-            wall_time.append(total_time)
-            messages.append({
-                "role": "assistant",
-                "content": output
-            })
+    # ... Warmup section ...
     print('Warmup done')
 
     for question in tqdm(questions):
-
         choices = []
         for i in range(num_choices):
             torch.manual_seed(i)
             messages = [
-                {"role": "system",
-                 "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+                {"role": "system", "content": "You are a helpful, respectful and honest assistant..."},
             ]
-            turns = []
-            idxs = []
-            new_tokens = []
-            wall_time = []
-            accept_length_lists = []
-            # [수정] 샘플 단위로 collector clear
+            turns, idxs, new_tokens, wall_time, accept_length_lists = [], [], [], [], []
             collector.clear()
+
             for j in range(len(question["turns"])):
                 qs = question["turns"][j]
-                messages.append({
-                    "role": "user",
-                    "content": qs
-                })
-                prompt = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-                input_ids = tokenizer([prompt], add_special_tokens=False, ).input_ids
-                prompt_len = len(input_ids[0])
+                messages.append({"role": "user", "content": qs})
+                prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                input_ids = tokenizer([prompt], add_special_tokens=False).input_ids
+
                 torch.cuda.synchronize()
                 start_time = time.time()
 
                 output_ids, new_token, idx, accept_length_list = model.eagenerate(
-                    torch.as_tensor(input_ids).cuda(),
-                    max_new_tokens=max_new_token,
-                    temperature=temperature,
-                    log=True,
-                    is_llama3=True,
-                    hidden_state_collector=collector # collector에 계속 누적
+                    torch.as_tensor(input_ids).cuda(), max_new_tokens=max_new_token,
+                    temperature=temperature, log=True, is_llama3=True, hidden_state_collector=collector
                 )
+
                 torch.cuda.synchronize()
                 total_time = time.time() - start_time
                 output_ids = output_ids[0][len(input_ids[0]):]
-                stop_token_ids = [
-                    tokenizer.eos_token_id,
-                    tokenizer.convert_tokens_to_ids("<|eot_id|>")
-                ]
+                stop_token_ids = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
 
                 if stop_token_ids:
-                    stop_token_ids_index = [
-                        i
-                        for i, id in enumerate(output_ids)
-                        if id in stop_token_ids
-                    ]
+                    stop_token_ids_index = [k for k, out_id in enumerate(output_ids) if out_id in stop_token_ids]
                     if len(stop_token_ids_index) > 0:
                         output_ids = output_ids[: stop_token_ids_index[0]]
 
-                output = tokenizer.decode(
-                    output_ids,
-                    spaces_between_special_tokens=False,
-                )
+                output = tokenizer.decode(output_ids, spaces_between_special_tokens=False)
                 for special_token in tokenizer.special_tokens_map.values():
                     if isinstance(special_token, list):
                         for special_tok in special_token:
@@ -305,70 +189,120 @@ def get_model_answers(
                 new_tokens.append(int(new_token))
                 wall_time.append(total_time)
                 accept_length_lists += accept_length_list
-                messages.append({
-                    "role": "assistant",
-                    "content": output
-                })
-                # [DEBUG] 턴별 피처 수집/생성 토큰 수 확인
-                collected_features = len(collector.get_hidden_states_by_state('speculated'))
-                print(f"[DEBUG] question_id={question['question_id']}, turn={j+1}, new_token={new_token}, collected_features={collected_features}")
-            # torch.cuda.empty_cache()
+                messages.append({"role": "assistant", "content": output})
+
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time, "accept_length": accept_length_lists})
 
-        # [수정] 샘플 전체에 대해 collapse metric 계산
-        all_features = collector.get_hidden_states_by_state('speculated')
-        print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}, total_generated_tokens={sum(new_tokens)}")
-        if len(all_features) > 0:
-            all_features = torch.cat(all_features, dim=0)
-            print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
-            
-            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=64)
-            
-            print(f"[DEBUG] sample metrics={metrics}")
-            metrics['question_id'] = question['question_id']
-            all_turn_collapse_metrics.append(metrics)
+        total_generated_tokens = sum(choices[0]['new_tokens'])
+        is_valid_for_summary = total_generated_tokens >= CHUNK_SIZE
 
-        # Dump answers
+        total_sample_wall_time = sum(choices[0]['wall_time'])
+        accept_lengths = choices[0]['accept_length']
+        avg_sample_accept_length, slope_accept_length = 0, 0
+
+        if accept_lengths and len(accept_lengths) > 1:
+            avg_sample_accept_length = (sum(accept_lengths) / len(accept_lengths)) + 1
+            steps = np.arange(len(accept_lengths))
+            y = np.array(accept_lengths)
+            slope, _ = np.polyfit(steps, y, 1)
+            slope_accept_length = slope
+        elif accept_lengths:
+            avg_sample_accept_length = (sum(accept_lengths) / len(accept_lengths)) + 1
+
+        # [MODIFIED] SVD/Entropy 지표를 미리 계산
+        all_features = collector.get_hidden_states_by_state('speculated')
+        metrics, avg_svd_entropy, cv_svd_entropy, slope_svd_entropy = {}, 0, 0, 0
+        if len(all_features) > 0:
+            features_to_analyze = torch.cat(all_features, dim=0)
+            metrics = analyzer.get_collapse_metrics_fixed_chunk(features_to_analyze, chunk_size=CHUNK_SIZE)
+            avg_svd_entropy = metrics.get('avg_svd_entropy', 0)
+            cv_svd_entropy = metrics.get('cv_svd_entropy', 0)
+            slope_svd_entropy = metrics.get('slope_svd_entropy', 0)
+
+        # [MODIFIED] 모든 지표를 포함하여 로그 출력
+        print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, tokens={total_generated_tokens}, valid={is_valid_for_summary}, "
+              f"time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}, "
+              f"avg_ent={avg_svd_entropy:.4f}, cv_ent={cv_svd_entropy:.4f}, slope_ent={slope_svd_entropy:.4f}")
+
+        if is_valid_for_summary:
+            all_wall_times.append(total_sample_wall_time)
+            if avg_sample_accept_length > 0:
+                all_avg_accept_lengths.append(avg_sample_accept_length)
+            if slope_accept_length != 0:
+                all_acceptance_length_slopes.append(slope_accept_length)
+            if metrics:
+                metrics['question_id'] = question['question_id']
+                all_turn_collapse_metrics.append(metrics)
+
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
         with open(os.path.expanduser(answer_file), "a") as fout:
-            ans_json = {
-                "question_id": question["question_id"],
-                "answer_id": shortuuid.uuid(),
-                "model_id": model_id,
-                "choices": choices,
-                "tstamp": time.time(),
-            }
+            ans_json = {"question_id": question["question_id"], "answer_id": shortuuid.uuid(), "model_id": model_id, "choices": choices, "tstamp": time.time()}
             fout.write(json.dumps(ans_json) + "\n")
 
     if collapse_file:
         summary = {}
-        # entropies_by_chunk_idx: {0: [e1, e2, ...], 1: [e1, e2, ...], ...} 
-        # 각 키는 청크의 인덱스(0번째, 1번째, ...)를 의미합니다. 
-        entropies_by_chunk_idx = {} 
+        total_processed_samples = len(questions)
+        valid_samples_for_summary = len(all_wall_times)
 
-        for turn_metrics in all_turn_collapse_metrics: 
-            if 'fixed_chunk_svd_entropies' in turn_metrics: 
-                # 각 샘플의 고정 크기 청크 엔트로피 리스트를 순회합니다. 
-                for i, entropy in enumerate(turn_metrics['fixed_chunk_svd_entropies']): 
-                    entropies_by_chunk_idx[i].append(entropy)
-        
-        # 각 청크의 인덱스별로 평균 엔트로피를 계산합니다. 
-        for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()): 
-            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None 
-            summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None 
+        entropies_by_chunk_idx = {}
+        all_avg_entropies, all_cv_entropies, all_slope_entropies = [], [], []
 
-        summary['total_analyzezd_smaples'] = len(all_turn_collapse_metrics)
+        for metrics in all_turn_collapse_metrics:
+            if 'fixed_chunk_svd_entropies' in metrics:
+                for i, entropy in enumerate(metrics['fixed_chunk_svd_entropies']):
+                    if entropy is not None:
+                        entropies_by_chunk_idx.setdefault(i, []).append(entropy)
+            if metrics.get('avg_svd_entropy') is not None:
+                all_avg_entropies.append(metrics['avg_svd_entropy'])
+            if metrics.get('cv_svd_entropy') is not None:
+                all_cv_entropies.append(metrics['cv_svd_entropy'])
+            if metrics.get('slope_svd_entropy') is not None:
+                all_slope_entropies.append(metrics['slope_svd_entropy'])
 
-        report = {
-            'per_sample_metrics': all_turn_collapse_metrics, 
-            'summary': summary
-        }
+        summary['total_processed_samples'] = total_processed_samples
+        summary['valid_samples_for_summary'] = valid_samples_for_summary
+        summary['overall_avg_wall_time'] = float(np.mean(all_wall_times)) if all_wall_times else None
+        summary['overall_avg_accept_length'] = float(np.mean(all_avg_accept_lengths)) if all_avg_accept_lengths else None
+        summary['overall_avg_slope_accept_length'] = float(np.mean(all_acceptance_length_slopes)) if all_acceptance_length_slopes else None
+        summary['overall_avg_svd_entropy'] = float(np.mean(all_avg_entropies)) if all_avg_entropies else None
+        summary['overall_avg_cv_svd_entropy'] = float(np.mean(all_cv_entropies)) if all_cv_entropies else None
+        summary['overall_avg_slope_svd_entropy'] = float(np.mean(all_slope_entropies)) if all_slope_entropies else None
 
-        # collapse_file 저장 전 디렉토리 생성
+        chunk_summary = {}
+        for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()):
+            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None
+            chunk_summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None
+        summary.update(chunk_summary)
+
+        print("\n" + "="*60)
+        print(" " * 15 + "Comprehensive Analysis Summary")
+        print("="*60)
+        print(f"Total Processed Samples: {summary.get('total_processed_samples', 0)}")
+        print(f"Valid Samples for Summary (len >= {CHUNK_SIZE}): {summary.get('valid_samples_for_summary', 0)}")
+        print("-" * 60)
+        print("📊 Overall Sample Statistics (on Valid Samples):")
+        print(f"  - Average Wall Time                 : {summary.get('overall_avg_wall_time', 0):.4f}s")
+        print(f"  - Average Acceptance Length         : {summary.get('overall_avg_accept_length', 0):.4f}")
+        print(f"  - Avg Trend Slope of AccLen         : {summary.get('overall_avg_slope_accept_length', 0):.4f}")
+        print(f"  - Average SVD Entropy               : {summary.get('overall_avg_svd_entropy', 0):.4f}")
+        print(f"  - Average CV of Entropy             : {summary.get('overall_avg_cv_svd_entropy', 0):.4f}")
+        print(f"  - Average Trend Slope of Entropy    : {summary.get('overall_avg_slope_svd_entropy', 0):.4f}")
+        print("-" * 60)
+        print("📈 Chunk-wise Average SVD Entropy:")
+
+        chunk_keys = sorted([key for key in summary.keys() if 'avg_chunk_idx' in key], key=lambda x: int(x.split('_')[3]))
+        for key in chunk_keys:
+            chunk_index = key.split('_')[3]
+            value = summary[key]
+            print(f"  - Chunk {int(chunk_index):<2}: {value:.4f}")
+        print("="*60 + "\n")
+
+        report = {'per_sample_metrics': all_turn_collapse_metrics, 'summary': summary}
         os.makedirs(os.path.dirname(collapse_file), exist_ok=True)
         with open(collapse_file, "w") as fout:
             json.dump(report, fout, indent=2)
         logger.info(f"Collapse 분석 결과를 {collapse_file}에 저장했습니다.")
+        
 
 
 def reorg_answer_file(answer_file):
