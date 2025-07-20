@@ -185,12 +185,17 @@ def run_pile_analysis(args):
     
     logger.info(f"총 {args.num_samples}개 샘플을 {chunk_size}개 단위, {num_chunks}개 chunk로 나누어 처리합니다.")
     
-    full_dataset_stream = load_dataset(PILE_DATASET_ID, split="train", streaming=True).filter(is_high_quality)
+       # 1. 재사용 가능한 스트림(iterable)을 먼저 생성합니다.
+    full_dataset_iterable = load_dataset(PILE_DATASET_ID, split="train", streaming=True).filter(is_high_quality)
+    
+    # 2. iter()를 사용해 소모성 이터레이터로 변환합니다. (핵심 수정사항)
+    full_dataset_iterator = iter(full_dataset_iterable)
     
     for i in range(num_chunks):
         logger.info(f"--- Chunk {i+1}/{num_chunks} 처리 시작 ---")
         
-        chunk_stream = islice(full_dataset_stream, chunk_size)
+        # 3. 이제 islice는 소모성 이터레이터에서 데이터를 순서대로 가져옵니다.
+        chunk_stream = islice(full_dataset_iterator, chunk_size)
         
         pile_batch_iterator = create_pile_batch_iterator(
             tokenizer, chunk_stream, batch_size=args.batch_size, max_length=args.max_length
