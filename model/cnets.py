@@ -588,7 +588,8 @@ class Model(nn.Module):
             position_ids = torch.arange(
                 past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
             )
-            position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+            position_ids = position_ids.unsqueeze(0)
+            # position_ids = position_ids.view(-1, seq_length).long()
         else:
             position_ids = position_ids.view(-1, seq_length).long()
 

@@ -253,9 +253,10 @@ def initialize_tree(input_ids, model, past_key_values, logits_processor,
         token = token[None, None]
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
 
-    # embed_device = model.ea_layer.embed_tokens.weight.device
-    # draft_hidden_states = draft_hidden_states.to(embed_device)
-    # input_ids = input_ids.to(embed_device)
+    print("\n--- [디버깅] topK_genrate 호출 직전 ---")
+    print(f"전달되는 hidden_states의 값: {draft_hidden_states}")
+    print(f"전달되는 hidden_states의 타입: {type(draft_hidden_states)}")
+    print("-------------------------------------\n")
 
     draft_tokens, retrieve_indices,tree_mask,tree_position_ids = model.ea_layer.topK_genrate(
         draft_hidden_states, input_ids, model.base_model.lm_head, logits_processor)

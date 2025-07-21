@@ -441,17 +441,17 @@ def get_model_answers(
         # --- 2. 종합 통계치 계산 ---
         summary['total_processed_samples'] = total_processed_samples
         summary['valid_samples_for_summary'] = valid_samples_for_summary
-        summary['overall_avg_wall_time'] = float(np.mean(all_wall_times)) if all_wall_times else None
-        summary['overall_avg_accept_length'] = float(np.mean(all_avg_accept_lengths)) if all_avg_accept_lengths else None
-        summary['overall_avg_slope_accept_length'] = float(np.mean(all_acceptance_length_slopes)) if all_acceptance_length_slopes else None
-        summary['overall_avg_svd_entropy'] = float(np.mean(all_avg_entropies)) if all_avg_entropies else None
-        summary['overall_avg_cv_svd_entropy'] = float(np.mean(all_cv_entropies)) if all_cv_entropies else None
-        summary['overall_avg_slope_svd_entropy'] = float(np.mean(all_slope_entropies)) if all_slope_entropies else None
+        summary['overall_avg_wall_time'] = float(np.mean(all_wall_times)) if all_wall_times else 0.0 # None 대신 0.0
+        summary['overall_avg_accept_length'] = float(np.mean(all_avg_accept_lengths)) if all_avg_accept_lengths else 0.0 # None 대신 0.0
+        summary['overall_avg_slope_accept_length'] = float(np.mean(all_acceptance_length_slopes)) if all_acceptance_length_slopes else 0.0 # None 대신 0.0
+        summary['overall_avg_svd_entropy'] = float(np.mean(all_avg_entropies)) if all_avg_entropies else 0.0 # None 대신 0.0
+        summary['overall_avg_cv_svd_entropy'] = float(np.mean(all_cv_entropies)) if all_cv_entropies else 0.0 # None 대신 0.0
+        summary['overall_avg_slope_svd_entropy'] = float(np.mean(all_slope_entropies)) if all_slope_entropies else 0.0 # None 대신 0.0
 
         chunk_summary = {}
         for i, chunk_entropies in sorted(entropies_by_chunk_idx.items()):
-            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else None
-            chunk_summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy) if avg_entropy is not None else None
+            avg_entropy = np.mean(chunk_entropies) if chunk_entropies else 0.0 # None 대신 0.0
+            chunk_summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy)
         summary.update(chunk_summary)
 
         # --- 3. 터미널에 상세 리포트 출력 ---
