@@ -115,22 +115,25 @@ class SVDCollapseAnalyzer:
         """
         valid_entropies = [e for e in chunk_entropies if e is not None and e > 0]
         
-        if not valid_entropies:
-            return {
-                "avg_svd_entropy": None, 
-                "cv_svd_entropy": None,
-                "slope_svd_entropy": None
-            }
-        
-        avg_entropy = np.mean(valid_entropies)
-        std_entropy = np.std(valid_entropies)
-        cv_entropy = (std_entropy / avg_entropy) if avg_entropy > 0 else 0.0
-        
-        # 추세 기울기 계산 함수 호출
-        slope_entropy = self._calculate_entropy_trend_slope(valid_entropies)
-        
+        # 기본값 설정
+        avg_entropy = 0.0
+        cv_entropy = 0.0
+        slope_entropy = 0.0 # 초기값을 0.0으로 설정
+
+        if valid_entropies: # valid_entropies가 비어있지 않은 경우에만 계산
+            avg_entropy = np.mean(valid_entropies)
+            std_entropy = np.std(valid_entropies)
+            cv_entropy = (std_entropy / avg_entropy) if avg_entropy > 0 else 0.0
+            
+            # 추세 기울기 계산 함수 호출
+            # _calculate_entropy_trend_slope가 None을 반환할 수 있으므로, 결과에 따라 처리
+            calculated_slope = self._calculate_entropy_trend_slope(valid_entropies)
+            if calculated_slope is not None:
+                slope_entropy = calculated_slope
+            # else: slope_entropy는 초기값 0.0을 유지
+
         return {
             "avg_svd_entropy": float(avg_entropy),
             "cv_svd_entropy": float(cv_entropy),
-            "slope_svd_entropy": slope_entropy
+            "slope_svd_entropy": float(slope_entropy) # 항상 float으로 반환하도록 보장
         }
