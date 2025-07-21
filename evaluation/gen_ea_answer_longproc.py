@@ -195,7 +195,91 @@ def get_model_answers(
 
     question = questions[0]
 
-    # ... Warmup section remains the same ...
+   # LongProc 벤치마크에서는 Warmup 짧게 수행
+    for _ in range(1):
+        torch.manual_seed(0)
+
+        messages = [
+            {"role": "system",
+             "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+        ]
+
+        turns = []
+        idxs = []
+        new_tokens = []
+        wall_time = []
+
+        # 1. longproc이 생성한 프롬프트를 가져옵니다.
+        prompt_text = question["turns"][0]
+
+        # 시스템 프롬프트를 포함한 대화 형식으로 재구성합니다.
+        messages = [
+            {"role": "system", "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."}, # LongProc 범용 프롬프트
+            {"role": "user", "content": prompt_text} # 정제된 프롬프트 사용
+        ]
+
+        final_prompt = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        input_ids = tokenizer([final_prompt], add_special_tokens=False).input_ids
+
+        # try:
+        torch.cuda.synchronize()
+        start_time = time.time()
+
+        output_ids, new_token, idx = model.eagenerate(
+            torch.as_tensor(input_ids).cuda(),
+            max_new_tokens=max_new_token,
+            temperature=temperature,
+            max_length=model_max_length,
+            log=True,
+            is_llama3=True,
+        )
+        torch.cuda.synchronize()
+        total_time = time.time() - start_time
+        output_ids = output_ids[0][len(input_ids[0]):]
+        # be consistent with the template's stop_token_ids
+        stop_token_ids = [
+            tokenizer.eos_token_id,
+            tokenizer.convert_tokens_to_ids("<|eot_id|>")
+        ]
+
+        if stop_token_ids:
+            stop_token_ids_index = [
+                i
+                for i, id in enumerate(output_ids)
+                if id in stop_token_ids
+            ]
+            if len(stop_token_ids_index) > 0:
+                output_ids = output_ids[: stop_token_ids_index[0]]
+
+        output = tokenizer.decode(
+            output_ids,
+            spaces_between_special_tokens=False,
+        )
+        # stop_str = "</s>"
+        # if stop_str and output.find(stop_str) > 0:
+        #     output = output[: output.find(stop_str)]
+        for special_token in tokenizer.special_tokens_map.values():
+            if isinstance(special_token, list):
+                for special_tok in special_token:
+                    output = output.replace(special_tok, "")
+            else:
+                output = output.replace(special_token, "")
+        output = output.strip()
+
+        turns.append(output)
+        idxs.append(int(idx))
+        new_tokens.append(int(new_token))
+        wall_time.append(total_time)
+        messages.append({
+            "role": "assistant",
+            "content": output
+        })
+
     print('Warmup done')
 
     for question in tqdm(questions):
@@ -204,7 +288,7 @@ def get_model_answers(
             torch.manual_seed(i)
 
             messages = [
-                {"role": "system", "content": "You are a highly specialized agent..."},
+                {"role": "system", "content": "You are a highly specialized agent tasked with executing complex, multi-step procedures based on a long context. Your primary goal is to follow the given instructions precisely and generate a complete, structured, long-form output. Key directives: 1.  **Follow Instructions Meticulously**: Adhere strictly to every step and constraint outlined in the user's request. Do not summarize or omit any required steps. 2.  **Synthesize All Information**: Your response must be based on a thorough synthesis of all relevant information dispersed throughout the provided context. 3.  **Generate a Complete and Structured Output**: Produce a long-form, well-structured response in the exact format specified. Ensure the output is fully completed before you stop. Do not end prematurely. 4.  **Reason Step-by-Step**: Think through the procedure logically to ensure accuracy and coherence from beginning to end."},
             ]
 
             turns = []
@@ -214,47 +298,55 @@ def get_model_answers(
             accept_length_lists = []
 
             collector.clear()
-            for j, qs in enumerate(question["turns"]):
-                messages.append({"role": "user", "content": qs})
-                prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                input_ids = tokenizer([prompt], add_special_tokens=False).input_ids
 
-                torch.cuda.synchronize()
-                start_time = time.time()
+            prompt_text = question["turns"][0]
 
-                output_ids, new_token, idx, accept_length_list = model.eagenerate(
-                    torch.as_tensor(input_ids).cuda(), max_new_tokens=max_new_token, temperature=temperature,
-                    max_length=model_max_length, log=True, is_llama3=True, hidden_state_collector=collector
-                )
+            # 시스템 프롬프트를 포함한 대화 형식으로 재구성합니다.
+            messages.append({"role": "user", "content": prompt_text})
+            
+            final_prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            input_ids = tokenizer([final_prompt], add_special_tokens=False).input_ids
 
-                torch.cuda.synchronize()
-                total_time = time.time() - start_time
-                output_ids = output_ids[0][len(input_ids[0]):]
-                stop_token_ids = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
+            torch.cuda.synchronize()
+            start_time = time.time()
 
-                if stop_token_ids:
-                    stop_token_ids_index = [k for k, out_id in enumerate(output_ids) if out_id in stop_token_ids]
-                    if len(stop_token_ids_index) > 0:
-                        output_ids = output_ids[: stop_token_ids_index[0]]
+            output_ids, new_token, idx, accept_length_list = model.eagenerate(
+                torch.as_tensor(input_ids).cuda(), max_new_tokens=max_new_token, temperature=temperature,
+                max_length=model_max_length, log=True, is_llama3=True, hidden_state_collector=collector
+            )
 
-                output = tokenizer.decode(output_ids, spaces_between_special_tokens=False)
-                for special_token in tokenizer.special_tokens_map.values():
-                    if isinstance(special_token, list):
-                        for special_tok in special_token:
-                            output = output.replace(special_tok, "")
-                    else:
-                        output = output.replace(special_token, "")
-                output = output.strip()
+            torch.cuda.synchronize()
+            total_time = time.time() - start_time
+            output_ids = output_ids[0][len(input_ids[0]):]
+            stop_token_ids = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids("<|eot_id|>")]
 
-                turns.append(output)
-                idxs.append(int(idx))
-                new_tokens.append(int(new_token))
-                wall_time.append(total_time)
-                accept_length_lists += accept_length_list
+            if stop_token_ids:
+                stop_token_ids_index = [k for k, out_id in enumerate(output_ids) if out_id in stop_token_ids]
+                if len(stop_token_ids_index) > 0:
+                    output_ids = output_ids[: stop_token_ids_index[0]]
 
-                messages.append({"role": "assistant", "content": output})
-                collected_features = len(collector.get_hidden_states_by_state('speculated'))
-                #print(f"[DEBUG] question_id={question['question_id']}, turn={j+1}, new_token={new_token}, collected_features={collected_features}")
+            output = tokenizer.decode(output_ids, spaces_between_special_tokens=False)
+            for special_token in tokenizer.special_tokens_map.values():
+                if isinstance(special_token, list):
+                    for special_tok in special_token:
+                        output = output.replace(special_tok, "")
+                else:
+                    output = output.replace(special_token, "")
+            output = output.strip()
+
+            turns.append(output)
+            idxs.append(int(idx))
+            new_tokens.append(int(new_token))
+            wall_time.append(total_time)
+            accept_length_lists += accept_length_list
+
+            messages.append({"role": "assistant", "content": output})
+            collected_features = len(collector.get_hidden_states_by_state('speculated'))
 
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time, "accept_length": accept_length_lists})
 
@@ -287,12 +379,31 @@ def get_model_answers(
             if slope_accept_length != 0:
                 all_acceptance_length_slopes.append(slope_accept_length)
 
+            # all_features = collector.get_hidden_states_by_state('speculated')
+            # if len(all_features) > 0:
+            #     all_features = torch.cat(all_features, dim=0)
+            #     metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=CHUNK_SIZE)
+            #     metrics['question_id'] = question['question_id']
+            #     all_turn_collapse_metrics.append(metrics)
+
+            # [MODIFIED] SVD/Entropy 지표를 미리 계산
             all_features = collector.get_hidden_states_by_state('speculated')
+               # 모든 엔트로피 지표를 0.0으로 명시적 초기화
+            avg_svd_entropy, cv_svd_entropy, slope_svd_entropy = 0.0, 0.0, 0.0
+            
             if len(all_features) > 0:
-                all_features = torch.cat(all_features, dim=0)
-                metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=CHUNK_SIZE)
-                metrics['question_id'] = question['question_id']
-                all_turn_collapse_metrics.append(metrics)
+                features_to_analyze = torch.cat(all_features, dim=0)
+                metrics = analyzer.get_collapse_metrics_fixed_chunk(features_to_analyze, chunk_size=CHUNK_SIZE)
+                avg_svd_entropy = metrics.get('avg_svd_entropy', 0)
+                cv_svd_entropy = metrics.get('cv_svd_entropy', 0)
+                slope_svd_entropy = metrics.get('slope_svd_entropy', 0)
+
+        # [MODIFIED] 모든 지표를 포함하여 로그 출력
+        print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, tokens={total_generated_tokens}, valid={is_valid_for_summary}, "
+              f"time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}, "
+              f"avg_ent={avg_svd_entropy:.4f}, cv_ent={cv_svd_entropy:.4f}, slope_ent={slope_svd_entropy:.4f}")
+    
+    # ... (이후 코드 생략) ...
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
@@ -501,8 +612,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-max-length",
         type=int,
-        default=4096,
+        default=12800,
         help="The maximum sequence length the model can handle."
+    )
+    parser.add_argument(
+        "--question-begin",
+        type=int,
+        help="A debug option. The begin index of questions.",
+    )
+    parser.add_argument(
+        "--question-end", type=int, help="A debug option. The end index of questions."
     )
     
     args = parser.parse_args()

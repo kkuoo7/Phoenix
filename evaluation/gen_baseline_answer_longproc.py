@@ -193,10 +193,6 @@ def get_model_answers(
     for _ in range(1):
         torch.manual_seed(0)
 
-        # messages = [
-        #     {"role": "system", "content": "You are a highly specialized agent tasked with executing complex, multi-step procedures based on a long context. Your primary goal is to follow the given instructions precisely and generate a complete, structured, long-form output. Key directives: 1.  **Follow Instructions Meticulously**: Adhere strictly to every step and constraint outlined in the user's request. Do not summarize or omit any required steps. 2.  **Synthesize All Information**: Your response must be based on a thorough synthesis of all relevant information dispersed throughout the provided context. 3.  **Generate a Complete and Structured Output**: Produce a long-form, well-structured response in the exact format specified. Ensure the output is fully completed before you stop. Do not end prematurely. 4.  **Reason Step-by-Step**: Think through the procedure logically to ensure accuracy and coherence from beginning to end."},
-        # ]
-
         messages = [
             {"role": "system",
              "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
@@ -207,16 +203,22 @@ def get_model_answers(
         new_tokens = []
         wall_time = []
 
-        user_content = question["turns"][0]
-        messages.append({"role": "user", "content": user_content})
+        # 1. longproc이 생성한 프롬프트를 가져옵니다.
+        prompt_text = question["turns"][0]
 
-        prompt = tokenizer.apply_chat_template(
-            messages, 
+        # 시스템 프롬프트를 포함한 대화 형식으로 재구성합니다.
+        messages = [
+            {"role": "system", "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."}, # LongProc 범용 프롬프트
+            {"role": "user", "content": prompt_text} # 정제된 프롬프트 사용
+        ]
+
+        final_prompt = tokenizer.apply_chat_template(
+            messages,
             tokenize=False,
             add_generation_prompt=True
         )
 
-        input_ids = tokenizer([prompt], add_special_tokens=False).input_ids 
+        input_ids = tokenizer([final_prompt], add_special_tokens=False).input_ids
 
         # try:
         torch.cuda.synchronize()
@@ -229,7 +231,6 @@ def get_model_answers(
             max_length=model_max_length,
             log=True,
             is_llama3=True,
-            hidden_state_collector=collector,
         )
         torch.cuda.synchronize()
         total_time = time.time() - start_time
@@ -280,11 +281,6 @@ def get_model_answers(
         for i in range(num_choices):
             torch.manual_seed(i)
 
-            # messages = [
-            #     {"role": "system",
-            #     "content": "You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being safe.  Your answers should not include any harmful, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.\n\nIf a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
-            # ]
-
             messages = [
                 {"role": "system", "content": "You are a highly specialized agent tasked with executing complex, multi-step procedures based on a long context. Your primary goal is to follow the given instructions precisely and generate a complete, structured, long-form output. Key directives: 1.  **Follow Instructions Meticulously**: Adhere strictly to every step and constraint outlined in the user's request. Do not summarize or omit any required steps. 2.  **Synthesize All Information**: Your response must be based on a thorough synthesis of all relevant information dispersed throughout the provided context. 3.  **Generate a Complete and Structured Output**: Produce a long-form, well-structured response in the exact format specified. Ensure the output is fully completed before you stop. Do not end prematurely. 4.  **Reason Step-by-Step**: Think through the procedure logically to ensure accuracy and coherence from beginning to end."},
             ]
@@ -296,72 +292,75 @@ def get_model_answers(
 
             # [수정] 샘플 단위로 collector clear
             collector.clear()
-            for j, qs in enumerate(question["turns"]):
 
-                messages.append({"role": "user", "content": qs})
+            prompt_text = question["turns"][0]
 
-                prompt = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
+            # 시스템 프롬프트를 포함한 대화 형식으로 재구성합니다.
+            messages.append({"role": "user", "content": prompt_text})
+            
+            final_prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            
+            input_ids = tokenizer([final_prompt], add_special_tokens=False).input_ids
 
-                input_ids = tokenizer([prompt], add_special_tokens=False, ).input_ids
+            torch.cuda.synchronize()
+            start_time = time.time()
 
-                torch.cuda.synchronize()
-                start_time = time.time()
+            output_ids, new_token, idx = model.naivegenerate(
+                torch.as_tensor(input_ids).cuda(),
+                max_new_tokens=max_new_token,
+                temperature=temperature,
+                max_length=model_max_length,
+                log=True,
+                is_llama3=True,
+                hidden_state_collector=collector # collector에 계속 누적
+            )
 
-                output_ids, new_token, idx = model.naivegenerate(
-                    torch.as_tensor(input_ids).cuda(),
-                    max_new_tokens=max_new_token,
-                    temperature=temperature,
-                    max_length=model_max_length,
-                    log=True,
-                    is_llama3=True,
-                    hidden_state_collector=collector # collector에 계속 누적
-                )
+            torch.cuda.synchronize()
+            total_time = time.time() - start_time
+            output_ids = output_ids[0][len(input_ids[0]):]
+            stop_token_ids = [
+                tokenizer.eos_token_id,
+                tokenizer.convert_tokens_to_ids("<|eot_id|>")
+            ]
 
-                torch.cuda.synchronize()
-                total_time = time.time() - start_time
-                output_ids = output_ids[0][len(input_ids[0]):]
-                stop_token_ids = [
-                    tokenizer.eos_token_id,
-                    tokenizer.convert_tokens_to_ids("<|eot_id|>")
+            if stop_token_ids:
+                stop_token_ids_index = [
+                    i
+                    for i, id in enumerate(output_ids)
+                    if id in stop_token_ids
                 ]
+                if len(stop_token_ids_index) > 0:
+                    output_ids = output_ids[: stop_token_ids_index[0]]
 
-                if stop_token_ids:
-                    stop_token_ids_index = [
-                        i
-                        for i, id in enumerate(output_ids)
-                        if id in stop_token_ids
-                    ]
-                    if len(stop_token_ids_index) > 0:
-                        output_ids = output_ids[: stop_token_ids_index[0]]
+            output = tokenizer.decode(
+                output_ids,
+                spaces_between_special_tokens=False,
+            )
+            for special_token in tokenizer.special_tokens_map.values():
+                if isinstance(special_token, list):
+                    for special_tok in special_token:
+                        output = output.replace(special_tok, "")
+                else:
+                    output = output.replace(special_token, "")
+            output = output.strip()
 
-                output = tokenizer.decode(
-                    output_ids,
-                    spaces_between_special_tokens=False,
-                )
-                for special_token in tokenizer.special_tokens_map.values():
-                    if isinstance(special_token, list):
-                        for special_tok in special_token:
-                            output = output.replace(special_tok, "")
-                    else:
-                        output = output.replace(special_token, "")
-                output = output.strip()
+            turns.append(output)
+            idxs.append(int(idx))
+            new_tokens.append(int(new_token))
+            wall_time.append(total_time)
 
-                turns.append(output)
-                idxs.append(int(idx))
-                new_tokens.append(int(new_token))
-                wall_time.append(total_time)
+            messages.append({
+                "role": "assistant",
+                "content": output
+            })
 
-                messages.append({
-                    "role": "assistant",
-                    "content": output
-                })
-                # [DEBUG] 턴별 피처 수집/생성 토큰 수 확인
-                collected_features = len(collector.get_hidden_states_by_state('baseline_accepted'))
-                print(f"[DEBUG] question_id={question['question_id']}, turn={j+1}, new_token={new_token}, collected_features={collected_features}")
+            # [DEBUG] choice 별 피처 수집/생성 토큰 수 확인
+            collected_features = len(collector.get_hidden_states_by_state('baseline_accepted'))
+            print(f"[DEBUG] question_id={question['question_id']}, new_token={new_token}, collected_features={collected_features}")
             # torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time})
 
@@ -588,9 +587,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-max-length",
         type=int,
-        default=4096,
+        default=12800,
         help="The maximum sequence length the model can handle."
-    )   
+    ) 
+    parser.add_argument(
+        "--question-begin",
+        type=int,
+        help="A debug option. The begin index of questions.",
+    )
+    parser.add_argument(
+        "--question-end", type=int, help="A debug option. The end index of questions."
+    )
 
     args = parser.parse_args()
     setup_seed(args.seed)
