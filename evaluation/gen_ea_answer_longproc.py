@@ -394,9 +394,9 @@ def get_model_answers(
             if len(all_features) > 0:
                 features_to_analyze = torch.cat(all_features, dim=0)
                 metrics = analyzer.get_collapse_metrics_fixed_chunk(features_to_analyze, chunk_size=CHUNK_SIZE)
-                avg_svd_entropy = metrics.get('avg_svd_entropy', 0)
-                cv_svd_entropy = metrics.get('cv_svd_entropy', 0)
-                slope_svd_entropy = metrics.get('slope_svd_entropy', 0)
+                avg_svd_entropy = metrics.get('avg_svd_entropy', 0.0)
+                cv_svd_entropy = metrics.get('cv_svd_entropy', 0.0)
+                slope_svd_entropy = metrics.get('slope_svd_entropy', 0.0)
 
         # [MODIFIED] 모든 지표를 포함하여 로그 출력
         print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, tokens={total_generated_tokens}, valid={is_valid_for_summary}, "

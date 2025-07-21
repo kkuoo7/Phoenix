@@ -161,7 +161,7 @@ def run_analysis(args):
     # 1단계: Base 모델을 로드합니다. (이전과 동일)
     logger.info(f"Base 모델 로딩: {args.base_model_path}")
     base_model = AutoModelForCausalLM.from_pretrained(
-        args.base_model_path, torch_dtype=torch.float16, low_cpu_mem_usage=True,
+        args.base_model_path, torch_dtype=torch.float16, low_cpu_mem_usage=True
     )
 
     # 2단계: Draft 모델(CNet)을 수동으로 로드합니다. (이전과 동일)
