@@ -615,14 +615,6 @@ if __name__ == "__main__":
         default=12800,
         help="The maximum sequence length the model can handle."
     )
-    parser.add_argument(
-        "--question-begin",
-        type=int,
-        help="A debug option. The begin index of questions.",
-    )
-    parser.add_argument(
-        "--question-end", type=int, help="A debug option. The end index of questions."
-    )
     
     args = parser.parse_args()
     setup_seed(args.seed)
