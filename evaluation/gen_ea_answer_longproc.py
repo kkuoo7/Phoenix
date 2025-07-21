@@ -391,14 +391,30 @@ def get_model_answers(
                # 모든 엔트로피 지표를 0.0으로 명시적 초기화
             avg_svd_entropy, cv_svd_entropy, slope_svd_entropy = 0.0, 0.0, 0.0
             
+            current_sample_metrics = {} # 현재 샘플의 SVD/Entropy 관련 지표를 저장할 딕셔너리 생성
+            
             if len(all_features) > 0:
                 features_to_analyze = torch.cat(all_features, dim=0)
-                metrics = analyzer.get_collapse_metrics_fixed_chunk(features_to_analyze, chunk_size=CHUNK_SIZE)
-                avg_svd_entropy = metrics.get('avg_svd_entropy', 0.0)
-                cv_svd_entropy = metrics.get('cv_svd_entropy', 0.0)
-                slope_svd_entropy = metrics.get('slope_svd_entropy', 0.0)
+                metrics_from_analyzer = analyzer.get_collapse_metrics_fixed_chunk(features_to_analyze, chunk_size=CHUNK_SIZE)
+                
+                # 'metrics' 대신 'metrics_from_analyzer'를 사용하고, current_sample_metrics에 저장
+                avg_svd_entropy = metrics_from_analyzer.get('avg_svd_entropy', 0.0)
+                cv_svd_entropy = metrics_from_analyzer.get('cv_svd_entropy', 0.0)
+                slope_svd_entropy = metrics_from_analyzer.get('slope_svd_entropy', 0.0)
+                
+                # 모든 필요한 지표를 current_sample_metrics에 추가
+                current_sample_metrics['avg_svd_entropy'] = avg_svd_entropy
+                current_sample_metrics['cv_svd_entropy'] = cv_svd_entropy
+                current_sample_metrics['slope_svd_entropy'] = slope_svd_entropy
+                current_sample_metrics['fixed_chunk_svd_entropies'] = metrics_from_analyzer.get('fixed_chunk_svd_entropies', []) # chunk별 엔트로피도 필요하면 추가
 
-        # [MODIFIED] 모든 지표를 포함하여 로그 출력
+            # 여기에 추가! 각 샘플의 SVD/Entropy 관련 지표를 all_turn_collapse_metrics 리스트에 추가
+            # 이전에 주석 처리된 블록의 기능을 여기로 옮기는 것
+            if current_sample_metrics: # metrics가 비어있지 않은 경우에만 추가
+                current_sample_metrics['question_id'] = question['question_id'] # question_id도 추가
+                all_turn_collapse_metrics.append(current_sample_metrics)
+
+        # [MODIFIED] 모든 지표를 포함하여 로그 출력 (위에서 계산한 avg_svd_entropy 등을 사용)
         print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, tokens={total_generated_tokens}, valid={is_valid_for_summary}, "
               f"time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}, "
               f"avg_ent={avg_svd_entropy:.4f}, cv_ent={cv_svd_entropy:.4f}, slope_ent={slope_svd_entropy:.4f}")
