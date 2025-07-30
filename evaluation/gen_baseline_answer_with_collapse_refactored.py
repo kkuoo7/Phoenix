@@ -234,6 +234,7 @@ def get_model_answers(
             })
     print('Warmup done')
 
+    CHUNK_SIZE = 64
 
     for question in tqdm(questions):
 
@@ -327,11 +328,13 @@ def get_model_answers(
         collected_states = collector.get_collected_states()
         print(f"[DEBUG] collected states: {collected_states}")
         
-        if len(all_features) > 0:
+        is_valid_for_summary = len(all_features) > CHUNK_SIZE
+
+        if is_valid_for_summary:
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
 
-            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=64)
+            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=CHUNK_SIZE)
             
             print(f"[DEBUG] sample metrics={metrics}")
             metrics['question_id'] = question['question_id']

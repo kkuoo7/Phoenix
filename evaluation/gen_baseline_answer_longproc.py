@@ -188,6 +188,8 @@ def get_model_answers(
     all_turn_collapse_metrics = []
 
     question = questions[0]
+    # [NEW] 분석에 사용할 청크 사이즈 정의
+    CHUNK_SIZE = 128
 
     # LongProc 벤치마크에서는 Warmup 짧게 수행
     for _ in range(1):
@@ -366,13 +368,14 @@ def get_model_answers(
 
         # [수정] 샘플 전체에 대해 collapse metric 계산
         all_features = collector.get_hidden_states_by_state('baseline_accepted')
+        is_valid_for_summary = len(all_features) >= CHUNK_SIZE
         print(f"[DEBUG] sample question_id={question['question_id']}, total_feature_len={len(all_features)}, total_generated_tokens={sum(new_tokens)}")
         
-        if len(all_features) > 0:
+        if is_valid_for_summary:
             all_features = torch.cat(all_features, dim=0)
             print(f"[DEBUG] sample concatenated_features_shape={all_features.shape}")
             
-            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=128)
+            metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=CHUNK_SIZE)
             
             print(f"[DEBUG] sample metrics={metrics}")
             metrics['question_id'] = question['question_id']
@@ -589,7 +592,7 @@ if __name__ == "__main__":
         type=int,
         default=12800,
         help="The maximum sequence length the model can handle."
-    ) 
+    )
 
     args = parser.parse_args()
     setup_seed(args.seed)

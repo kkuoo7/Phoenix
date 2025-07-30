@@ -230,7 +230,7 @@ def get_model_answers(
         torch.cuda.synchronize()
         start_time = time.time()
 
-        output_ids, new_token, idx = model.eagenerate(
+        output_ids, new_token, idx, _  = model.eagenerate(
             torch.as_tensor(input_ids).cuda(),
             max_new_tokens=max_new_token,
             temperature=temperature,
@@ -356,9 +356,11 @@ def get_model_answers(
 
         # --- Calculate all metrics for printing ---
         total_sample_wall_time = sum(choices[0]['wall_time'])
-        accept_lengths = choices[0]['accept_length']
-        avg_sample_accept_length = 0
-        slope_accept_length = 0
+
+        # accept_lengths가 None이거나 비어있을 경우를 대비하여 초기화
+        accept_lengths = choices[0]['accept_length'] if 'accept_length' in choices[0] and choices[0]['accept_length'] is not None else []
+        avg_sample_accept_length = 0.0 # 초기값을 0.0으로 명시적으로 설정
+        slope_accept_length = 0.0     # 초기값을 0.0으로 명시적으로 설정
 
         if accept_lengths and len(accept_lengths) > 1:
             avg_sample_accept_length = (sum(accept_lengths) / len(accept_lengths)) + 1
@@ -366,10 +368,22 @@ def get_model_answers(
             y = np.array(accept_lengths)
             slope, _ = np.polyfit(steps, y, 1)
             slope_accept_length = slope
-        elif accept_lengths:
+        elif accept_lengths: # len(accept_lengths) == 1인 경우
             avg_sample_accept_length = (sum(accept_lengths) / len(accept_lengths)) + 1
 
-        print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, generated_tokens={total_generated_tokens}, is_valid={is_valid_for_summary}, wall_time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}")
+
+        # SVD/Entropy 관련 변수들을 is_valid_for_summary 조건과 무관하게 항상 초기화
+        # 이렇게 하면 print 문에서 이 변수들이 NoneType이 될 일이 없음
+        avg_svd_entropy = 0.0
+        cv_svd_entropy = 0.0
+        slope_svd_entropy = 0.0
+        current_sample_metrics = {} # is_valid_for_summary가 True일 때만 채워질 예정
+
+        # 디버깅 출력은 값을 모두 계산한 후에 한 번에 출력
+        # 이제 print 문 바로 위에서 모든 변수가 유효한 숫자 값을 가짐.
+        print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, generated_tokens={total_generated_tokens}, is_valid={is_valid_for_summary}, "
+            f"wall_time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}")
+
 
         # --- Conditionally store metrics and perform collapse analysis ---
         if is_valid_for_summary:
@@ -379,25 +393,14 @@ def get_model_answers(
             if slope_accept_length != 0:
                 all_acceptance_length_slopes.append(slope_accept_length)
 
-            # all_features = collector.get_hidden_states_by_state('speculated')
-            # if len(all_features) > 0:
-            #     all_features = torch.cat(all_features, dim=0)
-            #     metrics = analyzer.get_collapse_metrics_fixed_chunk(all_features, chunk_size=CHUNK_SIZE)
-            #     metrics['question_id'] = question['question_id']
-            #     all_turn_collapse_metrics.append(metrics)
-
             # [MODIFIED] SVD/Entropy 지표를 미리 계산
             all_features = collector.get_hidden_states_by_state('speculated')
-               # 모든 엔트로피 지표를 0.0으로 명시적 초기화
-            avg_svd_entropy, cv_svd_entropy, slope_svd_entropy = 0.0, 0.0, 0.0
             
-            current_sample_metrics = {} # 현재 샘플의 SVD/Entropy 관련 지표를 저장할 딕셔너리 생성
-            
+            # 이 블록 안에서만 값이 변경되지만, 위에 이미 초기화했으므로 안전함
             if len(all_features) > 0:
                 features_to_analyze = torch.cat(all_features, dim=0)
                 metrics_from_analyzer = analyzer.get_collapse_metrics_fixed_chunk(features_to_analyze, chunk_size=CHUNK_SIZE)
                 
-                # 'metrics' 대신 'metrics_from_analyzer'를 사용하고, current_sample_metrics에 저장
                 avg_svd_entropy = metrics_from_analyzer.get('avg_svd_entropy', 0.0)
                 cv_svd_entropy = metrics_from_analyzer.get('cv_svd_entropy', 0.0)
                 slope_svd_entropy = metrics_from_analyzer.get('slope_svd_entropy', 0.0)
@@ -406,20 +409,33 @@ def get_model_answers(
                 current_sample_metrics['avg_svd_entropy'] = avg_svd_entropy
                 current_sample_metrics['cv_svd_entropy'] = cv_svd_entropy
                 current_sample_metrics['slope_svd_entropy'] = slope_svd_entropy
-                current_sample_metrics['fixed_chunk_svd_entropies'] = metrics_from_analyzer.get('fixed_chunk_svd_entropies', []) # chunk별 엔트로피도 필요하면 추가
+                current_sample_metrics['fixed_chunk_svd_entropies'] = metrics_from_analyzer.get('fixed_chunk_svd_entropies', [])
 
-            # 여기에 추가! 각 샘플의 SVD/Entropy 관련 지표를 all_turn_collapse_metrics 리스트에 추가
-            # 이전에 주석 처리된 블록의 기능을 여기로 옮기는 것
+            # 각 샘플의 SVD/Entropy 관련 지표를 all_turn_collapse_metrics 리스트에 추가
             if current_sample_metrics: # metrics가 비어있지 않은 경우에만 추가
-                current_sample_metrics['question_id'] = question['question_id'] # question_id도 추가
+                current_sample_metrics['question_id'] = question['question_id']
                 all_turn_collapse_metrics.append(current_sample_metrics)
 
-        # [MODIFIED] 모든 지표를 포함하여 로그 출력 (위에서 계산한 avg_svd_entropy 등을 사용)
+        # --- DEBUGGING START ---
+        # Add these lines just before the problematic print statement (line 421 in your traceback)
+        print(f"\n--- DEBUGGING LINE  VARIABLES ---") # Adjust line number based on your file
+        print(f"question_id type: {type(question['question_id'])}, value: {question['question_id']}")
+        print(f"total_generated_tokens type: {type(total_generated_tokens)}, value: {total_generated_tokens}")
+        print(f"is_valid_for_summary type: {type(is_valid_for_summary)}, value: {is_valid_for_summary}")
+        print(f"total_sample_wall_time type: {type(total_sample_wall_time)}, value: {total_sample_wall_time}")
+        print(f"avg_sample_accept_length type: {type(avg_sample_accept_length)}, value: {avg_sample_accept_length}")
+        print(f"slope_accept_length type: {type(slope_accept_length)}, value: {slope_accept_length}")
+        print(f"avg_svd_entropy type: {type(avg_svd_entropy)}, value: {avg_svd_entropy}")
+        print(f"cv_svd_entropy type: {type(cv_svd_entropy)}, value: {cv_svd_entropy}")
+        print(f"slope_svd_entropy type: {type(slope_svd_entropy)}, value: {slope_svd_entropy}")
+        print(f"--- END DEBUGGING LINE  VARIABLES ---\n")
+
+        # [MODIFIED] 모든 지표를 포함하여 로그 출력
+        # 위에서 이미 모든 변수가 초기화되었으므로, 이제는 안전하게 출력 가능
         print(f"[DEBUG] SAMPLE_METRICS: id={question['question_id']}, tokens={total_generated_tokens}, valid={is_valid_for_summary}, "
-              f"time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}, "
-              f"avg_ent={avg_svd_entropy:.4f}, cv_ent={cv_svd_entropy:.4f}, slope_ent={slope_svd_entropy:.4f}")
+            f"time={total_sample_wall_time:.4f}s, avg_acc_len={avg_sample_accept_length:.4f}, slope_acc_len={slope_accept_length:.4f}, "
+            f"avg_ent={avg_svd_entropy:.4f}, cv_ent={cv_svd_entropy:.4f}, slope_ent={slope_svd_entropy:.4f}")
     
-    # ... (이후 코드 생략) ...
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
@@ -469,6 +485,8 @@ def get_model_answers(
             avg_entropy = np.mean(chunk_entropies) if chunk_entropies else 0.0 # None 대신 0.0
             chunk_summary[f'avg_chunk_idx_{i}_svd_entropy'] = float(avg_entropy)
         summary.update(chunk_summary)
+
+
 
         # --- 3. 터미널에 상세 리포트 출력 ---
         print("\n" + "="*60)

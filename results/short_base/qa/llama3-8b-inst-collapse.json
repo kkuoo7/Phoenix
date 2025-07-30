@@ -1,0 +1,613 @@
+{
+  "per_sample_metrics": [
+    {
+      "total_generated_tokens": 512,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.4260401725769043,
+        2.911682605743408,
+        2.1761550903320312,
+        2.0608625411987305,
+        2.067343235015869,
+        1.946406364440918,
+        1.9487384557724,
+        1.951490044593811
+      ],
+      "num_valid_chunks": 8,
+      "avg_svd_entropy": 2.311089813709259,
+      "cv_svd_entropy": 0.22367008528885404,
+      "slope_svd_entropy": -0.1883254420189632,
+      "question_id": 323
+    },
+    {
+      "total_generated_tokens": 95,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.5116822719573975
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.5116822719573975,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 326
+    },
+    {
+      "total_generated_tokens": 78,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.5677943229675293
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.5677943229675293,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 328
+    },
+    {
+      "total_generated_tokens": 93,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.668442726135254
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.668442726135254,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 329
+    },
+    {
+      "total_generated_tokens": 148,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6718921661376953,
+        3.6527950763702393
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.6623436212539673,
+      "cv_svd_entropy": 0.002607222552333485,
+      "slope_svd_entropy": -0.019097089767456124,
+      "question_id": 330
+    },
+    {
+      "total_generated_tokens": 179,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.5961010456085205,
+        3.5889992713928223
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.5925501585006714,
+      "cv_svd_entropy": 0.0009884029313959703,
+      "slope_svd_entropy": -0.007101774215698653,
+      "question_id": 331
+    },
+    {
+      "total_generated_tokens": 112,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6150364875793457
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6150364875793457,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 332
+    },
+    {
+      "total_generated_tokens": 98,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.69584321975708
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.69584321975708,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 335
+    },
+    {
+      "total_generated_tokens": 216,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.7732162475585938,
+        3.711542844772339,
+        3.78179931640625
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.755519469579061,
+      "cv_svd_entropy": 0.008332527577631307,
+      "slope_svd_entropy": 0.004291534423828771,
+      "question_id": 337
+    },
+    {
+      "total_generated_tokens": 68,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.491020917892456
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.491020917892456,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 340
+    },
+    {
+      "total_generated_tokens": 127,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6524758338928223
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6524758338928223,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 341
+    },
+    {
+      "total_generated_tokens": 512,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.2205944061279297,
+        3.137988805770874,
+        3.0974485874176025,
+        3.0272388458251953,
+        3.0751118659973145,
+        3.021897554397583,
+        3.0687005519866943,
+        3.026174545288086
+      ],
+      "num_valid_chunks": 8,
+      "avg_svd_entropy": 3.08439439535141,
+      "cv_svd_entropy": 0.020660723448210547,
+      "slope_svd_entropy": -0.02245429016294945,
+      "question_id": 343
+    },
+    {
+      "total_generated_tokens": 118,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6482107639312744
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6482107639312744,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 345
+    },
+    {
+      "total_generated_tokens": 95,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.641979932785034
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.641979932785034,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 347
+    },
+    {
+      "total_generated_tokens": 85,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.686662197113037
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.686662197113037,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 349
+    },
+    {
+      "total_generated_tokens": 156,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.645261526107788,
+        3.689087152481079
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.6671743392944336,
+      "cv_svd_entropy": 0.005975394447939321,
+      "slope_svd_entropy": 0.04382562637329046,
+      "question_id": 352
+    },
+    {
+      "total_generated_tokens": 220,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.709537982940674,
+        3.5665855407714844,
+        3.5653936862945557
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.613839070002238,
+      "cv_svd_entropy": 0.018725543194762995,
+      "slope_svd_entropy": -0.07207214832305868,
+      "question_id": 353
+    },
+    {
+      "total_generated_tokens": 91,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.7622923851013184
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.7622923851013184,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 354
+    },
+    {
+      "total_generated_tokens": 192,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.713021993637085,
+        3.6991941928863525,
+        3.708063840866089
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.7067600091298423,
+      "cv_svd_entropy": 0.0015431171957183297,
+      "slope_svd_entropy": -0.002479076385496709,
+      "question_id": 355
+    },
+    {
+      "total_generated_tokens": 101,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.754300117492676
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.754300117492676,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 357
+    },
+    {
+      "total_generated_tokens": 141,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6282432079315186,
+        3.667738676071167
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.6479909420013428,
+      "cv_svd_entropy": 0.005413317736745891,
+      "slope_svd_entropy": 0.03949546813964763,
+      "question_id": 359
+    },
+    {
+      "total_generated_tokens": 103,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6463613510131836
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6463613510131836,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 360
+    },
+    {
+      "total_generated_tokens": 79,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.67046856880188
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.67046856880188,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 363
+    },
+    {
+      "total_generated_tokens": 193,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.60713529586792,
+        3.5275864601135254,
+        3.6553430557250977
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.5966882705688477,
+      "cv_svd_entropy": 0.014645960334108603,
+      "slope_svd_entropy": 0.024103879928589037,
+      "question_id": 365
+    },
+    {
+      "total_generated_tokens": 184,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6886563301086426,
+        3.7338151931762695
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.711235761642456,
+      "cv_svd_entropy": 0.0060840736035106145,
+      "slope_svd_entropy": 0.045158863067626134,
+      "question_id": 366
+    },
+    {
+      "total_generated_tokens": 79,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6730799674987793
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6730799674987793,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 367
+    },
+    {
+      "total_generated_tokens": 169,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.666822671890259,
+        3.7529125213623047
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.7098675966262817,
+      "cv_svd_entropy": 0.011602819673448075,
+      "slope_svd_entropy": 0.08608984947204476,
+      "question_id": 368
+    },
+    {
+      "total_generated_tokens": 122,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6920361518859863
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6920361518859863,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 369
+    },
+    {
+      "total_generated_tokens": 166,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.684556722640991,
+        3.5401813983917236
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.6123690605163574,
+      "cv_svd_entropy": 0.019983468165989435,
+      "slope_svd_entropy": -0.14437532424926808,
+      "question_id": 372
+    },
+    {
+      "total_generated_tokens": 104,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6879653930664062
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6879653930664062,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 373
+    },
+    {
+      "total_generated_tokens": 208,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.627056121826172,
+        3.5511152744293213,
+        3.510873317718506
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.5630149046579995,
+      "cv_svd_entropy": 0.013520009862923678,
+      "slope_svd_entropy": -0.058091402053832175,
+      "question_id": 374
+    },
+    {
+      "total_generated_tokens": 214,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.715320348739624,
+        3.6850016117095947,
+        3.5552051067352295
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.6518423557281494,
+      "cv_svd_entropy": 0.019016379911606852,
+      "slope_svd_entropy": -0.0800576210021971,
+      "question_id": 375
+    },
+    {
+      "total_generated_tokens": 138,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6016361713409424,
+        3.7318217754364014
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.666728973388672,
+      "cv_svd_entropy": 0.017752280716720886,
+      "slope_svd_entropy": 0.1301856040954588,
+      "question_id": 378
+    },
+    {
+      "total_generated_tokens": 68,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.708066940307617
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.708066940307617,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 379
+    },
+    {
+      "total_generated_tokens": 412,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6307883262634277,
+        3.697864532470703,
+        3.644209146499634,
+        3.7558538913726807,
+        3.5957841873168945,
+        3.665255069732666
+      ],
+      "num_valid_chunks": 6,
+      "avg_svd_entropy": 3.664959192276001,
+      "cv_svd_entropy": 0.013969897240083979,
+      "slope_svd_entropy": -0.0006360735212053365,
+      "question_id": 380
+    },
+    {
+      "total_generated_tokens": 128,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.7000160217285156,
+        3.684601306915283
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.6923086643218994,
+      "cv_svd_entropy": 0.002087408748106839,
+      "slope_svd_entropy": -0.015414714813232956,
+      "question_id": 382
+    },
+    {
+      "total_generated_tokens": 224,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.555875301361084,
+        3.6041548252105713,
+        3.670506000518799
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.6101787090301514,
+      "cv_svd_entropy": 0.013016319089079721,
+      "slope_svd_entropy": 0.05731534957885767,
+      "question_id": 383
+    },
+    {
+      "total_generated_tokens": 72,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6274051666259766
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6274051666259766,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 386
+    },
+    {
+      "total_generated_tokens": 118,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6254377365112305
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.6254377365112305,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 390
+    },
+    {
+      "total_generated_tokens": 213,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6181135177612305,
+        3.6567459106445312,
+        3.640270471572876
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.6383766333262124,
+      "cv_svd_entropy": 0.004350390400468011,
+      "slope_svd_entropy": 0.011078476905822743,
+      "question_id": 393
+    },
+    {
+      "total_generated_tokens": 239,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.3703107833862305,
+        3.6957664489746094,
+        3.6404149532318115
+      ],
+      "num_valid_chunks": 3,
+      "avg_svd_entropy": 3.568830728530884,
+      "cv_svd_entropy": 0.039839934025948535,
+      "slope_svd_entropy": 0.13505208492279128,
+      "question_id": 394
+    },
+    {
+      "total_generated_tokens": 131,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.6796247959136963,
+        3.617123603820801
+      ],
+      "num_valid_chunks": 2,
+      "avg_svd_entropy": 3.6483741998672485,
+      "cv_svd_entropy": 0.00856562247578246,
+      "slope_svd_entropy": -0.06250119209289616,
+      "question_id": 395
+    },
+    {
+      "total_generated_tokens": 124,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.7090606689453125
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.7090606689453125,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 397
+    },
+    {
+      "total_generated_tokens": 512,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.4697844982147217,
+        2.9523916244506836,
+        2.8787238597869873,
+        2.833711624145508,
+        2.794356346130371,
+        2.8366951942443848,
+        2.8004038333892822,
+        2.813422679901123
+      ],
+      "num_valid_chunks": 8,
+      "avg_svd_entropy": 2.9224362075328827,
+      "cv_svd_entropy": 0.07266821753960846,
+      "slope_svd_entropy": -0.06571324950172781,
+      "question_id": 398
+    },
+    {
+      "total_generated_tokens": 119,
+      "chunk_size": 64,
+      "fixed_chunk_svd_entropies": [
+        3.628228187561035
+      ],
+      "num_valid_chunks": 1,
+      "avg_svd_entropy": 3.628228187561035,
+      "cv_svd_entropy": 0.0,
+      "slope_svd_entropy": 0.0,
+      "question_id": 399
+    }
+  ],
+  "summary": {
+    "total_analyzed_samples": 45,
+    "overall_avg_svd_entropy": 3.592504986347976,
+    "overall_avg_cv_svd_entropy": 0.0121115359146884,
+    "overall_avg_slope_svd_entropy": -0.0035938369155561157,
+    "overall_avg_wall_time": 3.579965737462044,
+    "avg_chunk_idx_0_svd_entropy": 3.6302990436553957,
+    "avg_chunk_idx_1_svd_entropy": 3.56768246318983,
+    "avg_chunk_idx_2_svd_entropy": 3.424954341008113,
+    "avg_chunk_idx_3_svd_entropy": 2.9194167256355286,
+    "avg_chunk_idx_4_svd_entropy": 2.8831489086151123,
+    "avg_chunk_idx_5_svd_entropy": 2.867563545703888,
+    "avg_chunk_idx_6_svd_entropy": 2.6059476137161255,
+    "avg_chunk_idx_7_svd_entropy": 2.5970290899276733
+  }
+}
